@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Acompanhamento das atividades do time</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <strong>Marketing</strong>
+            <span>Runrun.it Analytics</span>
+          </div>
+        </div>
+        <nav class="nav-tabs" aria-label="Visoes">
+          <button class="nav-tab active" data-tab="overview">Geral</button>
+          <button class="nav-tab" data-tab="comparison">Comparativos</button>
+          <button class="nav-tab" data-tab="workload">Carga</button>
+          <button class="nav-tab" data-tab="individual">Individual</button>
+          <button class="nav-tab" data-tab="alerts">Alertas</button>
+          <button class="nav-tab" data-tab="audit">Auditoria</button>
+        </nav>
+        <div class="sidebar-note">
+          <span>Quadros</span>
+          <strong>Demandas de Marketing</strong>
+          <strong>Criacao</strong>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Departamento</p>
+            <h1>Acompanhamento das atividades do time</h1>
+          </div>
+          <div class="status-pill" id="connectionStatus">Conectando</div>
+        </header>
+
+        <section class="filters" aria-label="Filtros de periodo">
+          <div class="preset-group" role="group" aria-label="Periodos">
+            <button class="preset active" data-preset="this-week">Semana</button>
+            <button class="preset" data-preset="last-week">Semana anterior</button>
+            <button class="preset" data-preset="this-fortnight">Quinzena</button>
+            <button class="preset" data-preset="last-fortnight">Quinzena anterior</button>
+            <button class="preset" data-preset="this-month">Mes</button>
+            <button class="preset" data-preset="last-month">Mes anterior</button>
+          </div>
+          <div class="custom-range">
+            <label>
+              Inicio
+              <input type="date" id="startDate">
+            </label>
+            <label>
+              Fim
+              <input type="date" id="endDate">
+            </label>
+            <button class="primary-button" id="applyCustom">Aplicar</button>
+          </div>
+        </section>
+
+        <div class="notice hidden" id="notice"></div>
+
+        <section class="view active" id="overviewView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Visao geral</p>
+              <h2 id="periodTitle">Carregando periodo</h2>
+            </div>
+            <button class="ghost-button" id="refreshButton">Atualizar</button>
+          </div>
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="two-column">
+            <article class="panel">
+              <div class="panel-header">
+                <h3>Desempenho por colaborador</h3>
+              </div>
+              <div id="peopleSummary"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-header">
+                <h3>Origem das demandas</h3>
+              </div>
+              <div id="boardBreakdown"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="comparisonView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Tendencia</p>
+              <h2>Comparativo com periodo anterior</h2>
+            </div>
+          </div>
+          <div class="metric-grid" id="comparisonGrid"></div>
+        </section>
+
+        <section class="view" id="workloadView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Equilibrio</p>
+              <h2>Carga e fila por pessoa</h2>
+            </div>
+          </div>
+          <div class="panel">
+            <div id="workloadRows"></div>
+          </div>
+        </section>
+
+        <section class="view" id="individualView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Analise individual</p>
+              <h2 id="individualTitle">Allana</h2>
+            </div>
+            <select id="personSelect" aria-label="Selecionar colaborador"></select>
+          </div>
+          <div class="metric-grid" id="individualMetrics"></div>
+          <div class="two-column">
+            <article class="panel">
+              <div class="panel-header"><h3>Distribuicao</h3></div>
+              <div id="individualBreakdowns"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><h3>Tarefas recentes</h3></div>
+              <div id="individualTasks"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="alertsView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Atencao</p>
+              <h2>Alertas de gestao</h2>
+            </div>
+          </div>
+          <div id="alertsList"></div>
+        </section>
+
+        <section class="view" id="auditView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Fonte</p>
+              <h2>Auditoria das tarefas usadas no calculo</h2>
+            </div>
+          </div>
+          <div class="panel table-panel">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tarefa</th>
+                  <th>Responsavel</th>
+                  <th>Quadro</th>
+                  <th>Status</th>
+                  <th>Prazo</th>
+                  <th>Tempo</th>
+                </tr>
+              </thead>
+              <tbody id="auditTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
