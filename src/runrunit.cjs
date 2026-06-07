@@ -95,6 +95,43 @@ async function fetchFirstSuccessful(paths, options) {
   throw error;
 }
 
+function getTaskTimestamp(task, field) {
+  const date = new Date(task?.[field] || '');
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function fetchTaskPages(query, options = {}) {
+  const limit = Number(options.limit || 100);
+  const maxPages = Number(options.maxPages || 10);
+  const periodStart = options.periodStart ? new Date(options.periodStart) : null;
+  const tasks = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const payload = await runrunRequest(`/tasks${toQuery({ ...query, limit, page })}`, options);
+    const pageTasks = extractTaskList(payload);
+    tasks.push(...pageTasks);
+
+    if (pageTasks.length < limit) break;
+    if (query.is_closed === true && periodStart && pageTasks.every((task) => {
+      const closeDate = getTaskTimestamp(task, 'close_date');
+      return closeDate && closeDate < periodStart;
+    })) {
+      break;
+    }
+  }
+
+  return tasks;
+}
+
+function dedupeTasks(tasks) {
+  const seen = new Map();
+  for (const task of tasks) {
+    const key = String(task.id ?? task.uid ?? JSON.stringify(task));
+    if (!seen.has(key)) seen.set(key, task);
+  }
+  return [...seen.values()];
+}
+
 async function fetchRunrunSnapshot(options = {}) {
   const env = options.env || process.env;
   assertCredentials(env);
@@ -104,23 +141,26 @@ async function fetchRunrunSnapshot(options = {}) {
     fetchImpl: options.fetchImpl,
   };
 
-  const taskParams = toQuery({
-    per_page: 1000,
-    limit: 1000,
-    page: 1,
-  });
-
-  const [usersPayload, boardsPayload, tasksPayload] = await Promise.all([
+  const [usersPayload, boardsPayload, openTasksPayload, closedTasksPayload] = await Promise.all([
     fetchFirstSuccessful(['/users', '/users?per_page=1000'], fetchOptions).catch((error) => ({ error })),
     fetchFirstSuccessful(['/boards', '/boards?per_page=1000'], fetchOptions).catch((error) => ({ error })),
-    fetchFirstSuccessful([
-      `/tasks${taskParams}`,
-      '/tasks',
-      '/task_evaluations',
-    ], fetchOptions),
+    fetchTaskPages({ is_closed: false }, { ...fetchOptions, maxPages: 10 }).catch((error) => ({ error })),
+    fetchTaskPages(
+      { is_closed: true, sort: 'close_date', sort_dir: 'desc' },
+      { ...fetchOptions, maxPages: 10, periodStart: options.start },
+    ).catch((error) => ({ error })),
   ]);
 
-  const tasks = extractTaskList(tasksPayload);
+  if (openTasksPayload.error && closedTasksPayload.error) {
+    const error = new Error(openTasksPayload.error.message || closedTasksPayload.error.message);
+    error.statusCode = 502;
+    error.code = 'RUNRUNIT_SOURCE_ERROR';
+    throw error;
+  }
+
+  const openTasks = Array.isArray(openTasksPayload) ? openTasksPayload : [];
+  const closedTasks = Array.isArray(closedTasksPayload) ? closedTasksPayload : [];
+  const tasks = dedupeTasks([...openTasks, ...closedTasks]);
   const users = Array.isArray(usersPayload) ? usersPayload : usersPayload.users || [];
   const boards = Array.isArray(boardsPayload) ? boardsPayload : boardsPayload.boards || [];
 
@@ -131,6 +171,8 @@ async function fetchRunrunSnapshot(options = {}) {
     sourceWarnings: [
       usersPayload.error ? `Usuarios: ${sanitizeApiError(usersPayload.error.message, env)}` : null,
       boardsPayload.error ? `Quadros: ${sanitizeApiError(boardsPayload.error.message, env)}` : null,
+      openTasksPayload.error ? `Tarefas abertas: ${sanitizeApiError(openTasksPayload.error.message, env)}` : null,
+      closedTasksPayload.error ? `Tarefas fechadas: ${sanitizeApiError(closedTasksPayload.error.message, env)}` : null,
     ].filter(Boolean),
   };
 }
@@ -156,6 +198,7 @@ module.exports = {
   buildRunrunHeaders,
   extractTaskList,
   fetchRunrunSnapshot,
+  fetchTaskPages,
   getDashboardConfig,
   runrunRequest,
   sanitizeApiError,
