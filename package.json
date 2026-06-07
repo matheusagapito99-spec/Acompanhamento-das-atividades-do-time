@@ -1,0 +1,12 @@
+{
+  "name": "acompanhamento-das-atividades-do-time",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node local-server.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
