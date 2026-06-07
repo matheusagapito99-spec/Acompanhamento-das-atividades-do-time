@@ -24,7 +24,11 @@ module.exports = async function handler(req, res) {
       ? { start: req.query.start, end: req.query.end, label: 'Periodo personalizado' }
       : getPresetRange(preset, new Date());
 
-    const snapshot = await fetchRunrunSnapshot({ env: process.env });
+    const snapshot = await fetchRunrunSnapshot({
+      env: process.env,
+      start: range.start,
+      end: range.end,
+    });
     const analytics = buildAnalytics(snapshot.tasks, {
       ...config,
       start: range.start,
@@ -39,6 +43,7 @@ module.exports = async function handler(req, res) {
       ...analytics,
       source: {
         rawTaskCount: analytics.rawTaskCount,
+        normalizedTaskCount: analytics.normalizedTaskCount,
         scopedTaskCount: analytics.scopedTaskCount,
         userCount: snapshot.users.length,
         boardCount: snapshot.boards.length,
