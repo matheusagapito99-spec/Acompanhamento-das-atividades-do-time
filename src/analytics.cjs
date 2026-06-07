@@ -32,12 +32,42 @@ function normalizeName(name) {
     .toLowerCase();
 }
 
+function compactName(name) {
+  return normalizeName(name)
+    .split(/\s+/)
+    .filter((part) => !['de', 'da', 'do', 'das', 'dos', 'e'].includes(part))
+    .join(' ');
+}
+
+function matchesConfiguredName(configured, actual) {
+  const configuredName = normalizeName(configured);
+  const actualName = normalizeName(actual);
+  if (!configuredName || !actualName) return false;
+  if (configuredName === actualName) return true;
+  if (actualName.startsWith(`${configuredName} `)) return true;
+  if (configuredName.startsWith(`${actualName} `)) return true;
+
+  const configuredCompact = compactName(configured);
+  const actualCompact = compactName(actual);
+  return actualCompact === configuredCompact || actualCompact.startsWith(`${configuredCompact} `);
+}
+
+function matchesConfiguredText(configured, actual) {
+  const configuredText = compactName(configured);
+  const actualText = compactName(actual);
+  if (!configuredText || !actualText) return false;
+  return configuredText === actualText
+    || actualText.includes(configuredText)
+    || configuredText.includes(actualText);
+}
+
 function getAssigneeName(task) {
-  if (task.user_name) return task.user_name;
   if (task.assignee_name) return task.assignee_name;
+  if (task.responsible_name) return task.responsible_name;
   if (Array.isArray(task.assignments) && task.assignments[0]?.assignee_name) {
     return task.assignments[0].assignee_name;
   }
+  if (task.user_name) return task.user_name;
   return 'Sem responsavel';
 }
 
@@ -46,12 +76,41 @@ function isClosed(task) {
 }
 
 function includesName(list, name) {
-  const normalized = normalizeName(name);
-  return list.map(normalizeName).includes(normalized);
+  return list.some((item) => matchesConfiguredName(item, name));
 }
 
 function includesBoard(list, name) {
-  return list.map(normalizeName).includes(normalizeName(name));
+  return list.some((item) => matchesConfiguredText(item, name));
+}
+
+function findConfiguredName(list, name) {
+  return list.find((item) => matchesConfiguredName(item, name)) || null;
+}
+
+function expandTaskAssignments(tasks) {
+  return tasks.flatMap((task) => {
+    if (!Array.isArray(task.assignments) || !task.assignments.length) {
+      return [{ ...task }];
+    }
+
+    return task.assignments.map((assignment) => ({
+      ...task,
+      assignment_id: assignment.id,
+      assignee_id: assignment.assignee_id || task.responsible_id,
+      assignee_name: assignment.assignee_name || task.responsible_name,
+      responsible_id: assignment.assignee_id || task.responsible_id,
+      responsible_name: assignment.assignee_name || task.responsible_name,
+      created_at: assignment.created_at || task.created_at,
+      task_created_at: task.created_at || null,
+      start_date: assignment.start_date || task.start_date,
+      close_date: assignment.close_date || task.close_date,
+      is_closed: assignment.is_closed ?? task.is_closed,
+      current_estimate_seconds: assignment.current_estimate_seconds ?? task.current_estimate_seconds,
+      estimated_seconds: assignment.estimated_seconds ?? task.estimated_seconds,
+      time_worked: assignment.time_worked ?? task.time_worked,
+      is_working_on: assignment.is_working_on ?? task.is_working_on,
+    }));
+  });
 }
 
 function inRange(dateValue, start, end) {
@@ -203,6 +262,7 @@ function buildAudit(tasks, start, end, referenceDate) {
       return {
         id: task.id,
         title: task.title || `Tarefa ${task.id}`,
+        collaborator: task._collaboratorName || getAssigneeName(task),
         assignee: getAssigneeName(task),
         board: task.board_name || 'Sem quadro',
         stage: task.board_stage_name || task.state || 'Sem status',
@@ -302,15 +362,18 @@ function buildAnalytics(tasks, options) {
   const referenceDate = toDate(options.referenceDate) || end || new Date();
   if (!start || !end) throw new Error('Periodo invalido.');
 
-  const scopedTasks = tasks.filter((task) => (
-    includesName(collaborators, getAssigneeName(task))
-    && includesBoard(boards, task.board_name)
-  ));
+  const normalizedTasks = expandTaskAssignments(tasks);
+  const scopedTasks = normalizedTasks
+    .map((task) => ({
+      ...task,
+      _collaboratorName: findConfiguredName(collaborators, getAssigneeName(task)),
+    }))
+    .filter((task) => task._collaboratorName && includesBoard(boards, task.board_name));
 
   const summary = summarizeTasks(scopedTasks, start, end, referenceDate);
   const teamAverageDelivered = collaborators.length ? summary.delivered / collaborators.length : 0;
   const people = collaborators.map((name) => {
-    const personTasks = scopedTasks.filter((task) => normalizeName(getAssigneeName(task)) === normalizeName(name));
+    const personTasks = scopedTasks.filter((task) => task._collaboratorName === name);
     const personSummary = summarizeTasks(personTasks, start, end, referenceDate);
     personSummary.productivityScore = scorePerson(personSummary, { teamAverageDelivered });
     return {
@@ -349,6 +412,7 @@ function buildAnalytics(tasks, options) {
     alerts: buildAlerts(audit, people),
     audit,
     rawTaskCount: tasks.length,
+    normalizedTaskCount: normalizedTasks.length,
     scopedTaskCount: scopedTasks.length,
   };
 }
@@ -394,6 +458,7 @@ function getPresetRange(preset, reference = new Date()) {
 module.exports = {
   buildAnalytics,
   buildTaskFlags,
+  expandTaskAssignments,
   getPresetRange,
   normalizeName,
   scorePerson,
