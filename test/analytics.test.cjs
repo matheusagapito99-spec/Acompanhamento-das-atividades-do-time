@@ -128,6 +128,46 @@ test('scorePerson rewards on-time delivery and penalizes overdue backlog', () =>
   assert.equal(risky >= 0, true);
 });
 
+test('buildAnalytics uses Runrun responsible assignment instead of task creator', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 10,
+      title: 'Peca de campanha',
+      user_name: 'Pessoa que abriu',
+      responsible_name: 'Allana Silva',
+      board_name: 'Criação',
+      board_stage_name: 'Concluido',
+      created_at: '2026-06-02T10:00:00-03:00',
+      close_date: '2026-06-03T17:00:00-03:00',
+      desired_date: '2026-06-04T18:00:00-03:00',
+      is_closed: true,
+      assignments: [
+        {
+          id: 'assignment-10',
+          task_id: 10,
+          assignee_name: 'Allana Silva',
+          start_date: '2026-06-02T11:00:00-03:00',
+          close_date: '2026-06-03T17:00:00-03:00',
+          is_closed: true,
+          current_estimate_seconds: 7200,
+          time_worked: 5400,
+        },
+      ],
+    },
+  ], {
+    collaborators: ['Allana'],
+    boards: ['Criacao'],
+    start: '2026-06-01',
+    end: '2026-06-07',
+    referenceDate: '2026-06-07T12:00:00-03:00',
+  });
+
+  assert.equal(analytics.scopedTaskCount, 1);
+  assert.equal(analytics.summary.delivered, 1);
+  assert.equal(analytics.people[0].summary.delivered, 1);
+  assert.equal(analytics.audit[0].assignee, 'Allana Silva');
+});
+
 test('getPresetRange returns current Brazilian month to date', () => {
   const range = getPresetRange('this-month', new Date('2026-06-09T12:00:00-03:00'));
 
