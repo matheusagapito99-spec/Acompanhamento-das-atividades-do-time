@@ -197,7 +197,9 @@ function renderIndividual() {
   ].join('');
   els.individualBreakdowns.innerHTML = distribution;
 
-  const tasks = (state.data.audit || []).filter((task) => task.assignee === person.name).slice(0, 8);
+  const tasks = (state.data.audit || [])
+    .filter((task) => task.collaborator === person.name || task.assignee === person.name)
+    .slice(0, 8);
   els.individualTasks.innerHTML = tasks.length
     ? tasks.map((task) => `
       <div class="task-row">
