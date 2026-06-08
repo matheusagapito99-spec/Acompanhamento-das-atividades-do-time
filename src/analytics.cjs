@@ -3,7 +3,7 @@ const DAY_MS = DAY_SECONDS * 1000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const CURRENT_DEADLINE_BASIS = 'current_deadline';
 
-const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de Marketing'];
+const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de MKT', 'Demandas de Marketing'];
 const CREATION_BOARD_ALIASES = ['Criacao', 'Criação'];
 const BRUNO_STAGE_ALIASES = [
   'Filas de demandas',
