@@ -202,6 +202,47 @@ test('buildAnalytics applies the marketing and Bruno board rules', () => {
   ]);
 });
 
+test('buildAnalytics accepts the real Runrun.it Demandas de MKT board name', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 30,
+      title: 'Demanda real de MKT',
+      responsible_name: 'Bruna Alvares',
+      user_name: 'Matheus Agapito',
+      board_name: 'Demandas de MKT',
+      board_stage_name: 'Em andamento',
+      created_at: '2026-05-21T10:00:00-03:00',
+      close_date: null,
+      is_closed: false,
+    },
+    {
+      id: 31,
+      title: 'Demanda com dupla atribuicao',
+      responsible_name: 'Allana Guimaraes',
+      user_name: 'Matheus Agapito',
+      board_name: 'Demandas de MKT',
+      board_stage_name: 'Ajustes',
+      created_at: '2026-05-22T10:00:00-03:00',
+      close_date: null,
+      is_closed: false,
+      assignments: [
+        { id: '31-a', assignee_name: 'Allana Guimaraes' },
+        { id: '31-b', assignee_name: 'Beatriz Casseb Gracia' },
+      ],
+    },
+  ], {
+    ...config,
+    start: '2026-05-01',
+    end: '2026-05-31',
+  });
+
+  assert.equal(analytics.scopedTaskCount, 3);
+  assert.equal(analytics.people.find((person) => person.name === 'Bruna').summary.active, 1);
+  assert.equal(analytics.people.find((person) => person.name === 'Allana').summary.active, 1);
+  assert.equal(analytics.people.find((person) => person.name === 'Beatriz').summary.active, 1);
+  assert.equal(analytics.breakdowns.boards[0].name, 'Demandas de MKT');
+});
+
 test('scorePerson rewards delivery health and penalizes overdue backlog', () => {
   const strong = scorePerson({
     active: 9,
