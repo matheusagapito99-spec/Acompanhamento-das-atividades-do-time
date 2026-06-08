@@ -1,7 +1,7 @@
 const API_BASE = 'https://runrun.it/api/v1.0';
 
 const DEFAULT_COLLABORATORS = ['Allana', 'Bruno', 'Bruna', 'Beatriz'];
-const DEFAULT_BOARDS = ['Demandas de Marketing', 'Demandas MKT', 'Criacao'];
+const DEFAULT_BOARDS = ['Demandas de Marketing', 'Demandas MKT', 'Demandas de MKT', 'Criacao'];
 
 function assertCredentials(env = process.env) {
   if (!env.RUNRUNIT_APP_KEY || !env.RUNRUNIT_USER_TOKEN) {
