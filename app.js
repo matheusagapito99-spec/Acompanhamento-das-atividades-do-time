@@ -2,6 +2,9 @@ const state = {
   data: null,
   preset: 'this-week',
   selectedPerson: 'Allana',
+  currentRequest: { preset: 'this-week' },
+  loading: false,
+  refreshTimer: null,
 };
 
 const els = {
@@ -439,16 +442,27 @@ function renderAll() {
   }
 }
 
-async function loadData(params = {}) {
-  setStatus('Carregando');
-  showNotice('');
+function startAutoRefresh() {
+  if (state.refreshTimer) return;
+  state.refreshTimer = window.setInterval(() => {
+    loadData(state.currentRequest, { background: true });
+  }, 15000);
+}
+
+async function loadData(params = state.currentRequest, options = {}) {
+  if (state.loading) return;
+  state.loading = true;
+  if (!options.background) {
+    setStatus('Carregando');
+    showNotice('');
+  }
 
   const query = new URLSearchParams();
   if (params.start && params.end) {
     query.set('start', params.start);
     query.set('end', params.end);
   } else {
-    query.set('preset', state.preset);
+    query.set('preset', params.preset || state.preset);
   }
 
   try {
@@ -457,12 +471,18 @@ async function loadData(params = {}) {
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || 'Falha ao carregar dados.');
     }
+    state.currentRequest = params.start && params.end
+      ? { start: params.start, end: params.end }
+      : { preset: params.preset || state.preset };
     state.data = payload;
     setStatus('Conectado', 'ready');
     renderAll();
+    startAutoRefresh();
   } catch (error) {
     setStatus('Acao necessaria', 'error');
-    showNotice(error.message, 'error');
+    if (!options.background) showNotice(error.message, 'error');
+  } finally {
+    state.loading = false;
   }
 }
 
@@ -480,7 +500,7 @@ document.querySelectorAll('.preset').forEach((button) => {
     state.preset = button.dataset.preset;
     document.querySelectorAll('.preset').forEach((preset) => preset.classList.remove('active'));
     button.classList.add('active');
-    loadData();
+    loadData({ preset: state.preset });
   });
 });
 
@@ -493,7 +513,7 @@ document.getElementById('applyCustom').addEventListener('click', () => {
   loadData({ start: els.startDate.value, end: els.endDate.value });
 });
 
-document.getElementById('refreshButton').addEventListener('click', () => loadData());
+document.getElementById('refreshButton').addEventListener('click', () => loadData(state.currentRequest));
 
 els.personSelect.addEventListener('change', () => {
   state.selectedPerson = els.personSelect.value;
