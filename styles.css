@@ -280,6 +280,10 @@ select {
   display: block;
 }
 
+.global-overview {
+  margin-top: 18px;
+}
+
 .section-header {
   border-radius: 8px;
   padding: 18px 20px;
