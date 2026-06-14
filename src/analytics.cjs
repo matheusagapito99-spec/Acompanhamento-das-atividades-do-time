@@ -198,21 +198,34 @@ function getAssigneeName(task) {
     || '';
 }
 
+function findFirstConfiguredMatch(candidates = [], collaborators = []) {
+  for (const candidate of candidates.filter(Boolean)) {
+    for (const collaborator of collaborators) {
+      if (matchesConfiguredName(candidate, collaborator)) return collaborator;
+    }
+  }
+  return null;
+}
+
 function findConfiguredName(task, collaborators = []) {
-  const candidates = [
-    getAssigneeName(task),
+  const directAssigneeCandidates = [
     task.assignee_name,
     task.responsible_name,
-    task.user_name,
     getNestedName(task.assignee),
     getNestedName(task.responsible),
+  ];
+  const userCandidates = [
+    task.user_name,
     getNestedName(task.user),
-  ].filter(Boolean);
+  ];
+  const creatorCandidates = [
+    task.created_by_name,
+    getNestedName(task.created_by),
+  ];
 
-  for (const collaborator of collaborators) {
-    if (candidates.some((candidate) => matchesConfiguredName(candidate, collaborator))) {
-      return collaborator;
-    }
+  for (const group of [directAssigneeCandidates, userCandidates, creatorCandidates]) {
+    const match = findFirstConfiguredMatch(group, collaborators);
+    if (match) return match;
   }
   return null;
 }
