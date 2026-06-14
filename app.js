@@ -5,17 +5,22 @@ const state = {
   currentRequest: { preset: 'this-week' },
   loading: false,
   refreshTimer: null,
+  nextRefreshAt: null,
+  activeTab: 'overview',
 };
+
+const REFRESH_INTERVAL_MS = 15000;
 
 const els = {
   status: document.getElementById('connectionStatus'),
+  refreshCountdown: document.getElementById('refreshCountdown'),
   notice: document.getElementById('notice'),
+  globalOverview: document.getElementById('globalOverview'),
   periodTitle: document.getElementById('periodTitle'),
   metricGrid: document.getElementById('metricGrid'),
   peopleSummary: document.getElementById('peopleSummary'),
   boardBreakdown: document.getElementById('boardBreakdown'),
   stageFunnel: document.getElementById('stageFunnel'),
-  comparisonGrid: document.getElementById('comparisonGrid'),
   workloadRows: document.getElementById('workloadRows'),
   personSelect: document.getElementById('personSelect'),
   individualTitle: document.getElementById('individualTitle'),
@@ -70,6 +75,15 @@ const METRICS = [
     tone: (summary) => (summary.late ? 'negative' : 'positive'),
     detail: () => 'Baseada no prazo atual',
     help: 'Tarefas entregues depois do prazo atual definido. Quando encontrarmos historico de prazo, trocaremos para o primeiro prazo definido.',
+  },
+  {
+    key: 'early',
+    label: 'Adiantadas',
+    type: 'number',
+    polarity: 'higher',
+    tone: (summary) => (summary.early ? 'positive' : ''),
+    detail: () => 'Baseada no prazo atual',
+    help: 'Tarefas entregues antes do prazo atual definido. Quando encontrarmos historico de prazo, trocaremos para o primeiro prazo definido.',
   },
   {
     key: 'overdueOpen',
@@ -154,6 +168,11 @@ function formatDays(value) {
 
 function formatDate(value) {
   if (!value) return 'Sem data';
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split('-');
+    return `${day}/${month}/${year}`;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Sem data';
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(date);
@@ -296,11 +315,6 @@ function renderPeople() {
   }).join('');
 }
 
-function renderComparisons() {
-  const comparison = state.data.comparisons?.[0];
-  renderMetrics(els.comparisonGrid, state.data.summary, comparison);
-}
-
 function renderWorkload() {
   const rows = state.data.people || [];
   const max = Math.max(...rows.map((row) => row.summary.open + row.summary.overdueOpen), 1);
@@ -425,11 +439,12 @@ function renderAll() {
   const data = state.data;
   const comparison = data.comparisons?.[0];
   els.periodTitle.textContent = `${data.range?.label || 'Periodo'} | ${formatDate(data.period.start)} a ${formatDate(data.period.end)}`;
+  els.startDate.value = data.period.start || '';
+  els.endDate.value = data.period.end || '';
   renderMetrics(els.metricGrid, data.summary, comparison);
   renderPeople();
   els.boardBreakdown.innerHTML = renderBarHtml(data.breakdowns.boards);
   renderStageFunnel();
-  renderComparisons();
   renderWorkload();
   renderIndividual();
   renderAlerts();
@@ -442,11 +457,55 @@ function renderAll() {
   }
 }
 
+function shouldShowGlobalOverview(tabName) {
+  return ['overview', 'workload', 'individual'].includes(tabName);
+}
+
+function setActiveTab(tabName) {
+  state.activeTab = tabName;
+  document.querySelectorAll('.nav-tab').forEach((tab) => tab.classList.remove('active'));
+  document.querySelectorAll('.view').forEach((view) => view.classList.remove('active'));
+  const button = document.querySelectorAll('.nav-tab');
+  button.forEach((tab) => {
+    if (tab.dataset.tab === tabName) tab.classList.add('active');
+  });
+  const view = document.getElementById(`${tabName}View`);
+  if (view) view.classList.add('active');
+  els.globalOverview.hidden = !shouldShowGlobalOverview(tabName);
+}
+
+function updateRefreshCountdown(message) {
+  if (!els.refreshCountdown) return;
+  if (message) {
+    els.refreshCountdown.textContent = message;
+    return;
+  }
+  if (!state.nextRefreshAt) {
+    els.refreshCountdown.textContent = 'Proxima atualizacao em --';
+    return;
+  }
+  const seconds = Math.max(0, Math.ceil((state.nextRefreshAt - Date.now()) / 1000));
+  els.refreshCountdown.textContent = `Proxima atualizacao em ${seconds}s`;
+}
+
+function scheduleNextRefresh() {
+  state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
+  updateRefreshCountdown();
+}
+
 function startAutoRefresh() {
+  if (!state.nextRefreshAt) scheduleNextRefresh();
   if (state.refreshTimer) return;
   state.refreshTimer = window.setInterval(() => {
-    loadData(state.currentRequest, { background: true });
-  }, 15000);
+    if (!state.nextRefreshAt) scheduleNextRefresh();
+    if (Date.now() >= state.nextRefreshAt) {
+      state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
+      updateRefreshCountdown('Atualizando agora...');
+      loadData(state.currentRequest, { background: true });
+      return;
+    }
+    updateRefreshCountdown();
+  }, 1000);
 }
 
 async function loadData(params = state.currentRequest, options = {}) {
@@ -455,9 +514,11 @@ async function loadData(params = state.currentRequest, options = {}) {
   if (!options.background) {
     setStatus('Carregando');
     showNotice('');
+    updateRefreshCountdown('Atualizando agora...');
   }
 
   const query = new URLSearchParams();
+  query.set('_', String(Date.now()));
   if (params.start && params.end) {
     query.set('start', params.start);
     query.set('end', params.end);
@@ -477,10 +538,12 @@ async function loadData(params = state.currentRequest, options = {}) {
     state.data = payload;
     setStatus('Conectado', 'ready');
     renderAll();
+    scheduleNextRefresh();
     startAutoRefresh();
   } catch (error) {
     setStatus('Acao necessaria', 'error');
     if (!options.background) showNotice(error.message, 'error');
+    scheduleNextRefresh();
   } finally {
     state.loading = false;
   }
@@ -488,10 +551,7 @@ async function loadData(params = state.currentRequest, options = {}) {
 
 document.querySelectorAll('.nav-tab').forEach((button) => {
   button.addEventListener('click', () => {
-    document.querySelectorAll('.nav-tab').forEach((tab) => tab.classList.remove('active'));
-    document.querySelectorAll('.view').forEach((view) => view.classList.remove('active'));
-    button.classList.add('active');
-    document.getElementById(`${button.dataset.tab}View`).classList.add('active');
+    setActiveTab(button.dataset.tab);
   });
 });
 
@@ -520,4 +580,5 @@ els.personSelect.addEventListener('change', () => {
   renderIndividual();
 });
 
+setActiveTab(state.activeTab);
 loadData();
