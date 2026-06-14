@@ -311,6 +311,30 @@ test('buildAnalytics uses Runrun responsible assignment instead of task creator'
   assert.equal(analytics.audit[0].assignee, 'Allana Silva');
 });
 
+test('buildAnalytics prioritizes the assigned collaborator over a matching creator/requester', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 40,
+      title: 'Video com responsavel Beatriz',
+      user_name: 'Allana Guimaraes',
+      responsible_name: 'Beatriz Casseb Gracia',
+      board_name: 'Demandas de MKT',
+      board_stage_name: 'Em andamento',
+      created_at: '2026-05-21T10:00:00-03:00',
+      close_date: null,
+      is_closed: false,
+    },
+  ], {
+    ...config,
+    start: '2026-05-01',
+    end: '2026-05-31',
+  });
+
+  assert.equal(analytics.people.find((person) => person.name === 'Allana').summary.active, 0);
+  assert.equal(analytics.people.find((person) => person.name === 'Beatriz').summary.active, 1);
+  assert.equal(analytics.audit[0].collaborator, 'Beatriz');
+});
+
 test('getPresetRange returns current Brazilian month to date', () => {
   const range = getPresetRange('this-month', new Date('2026-06-09T12:00:00-03:00'));
 
