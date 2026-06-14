@@ -10,7 +10,8 @@ function sendJson(res, status, payload) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
 
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
