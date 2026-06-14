@@ -18,7 +18,6 @@
         </div>
         <nav class="nav-tabs" aria-label="Visoes">
           <button class="nav-tab active" data-tab="overview">Geral</button>
-          <button class="nav-tab" data-tab="comparison">Comparativos</button>
           <button class="nav-tab" data-tab="workload">Carga</button>
           <button class="nav-tab" data-tab="individual">Individual</button>
           <button class="nav-tab" data-tab="alerts">Alertas</button>
@@ -37,7 +36,10 @@
             <p class="eyebrow">Departamento</p>
             <h1>Acompanhamento das atividades do time</h1>
           </div>
-          <div class="status-pill" id="connectionStatus">Conectando</div>
+          <div class="status-stack">
+            <div class="status-pill" id="connectionStatus">Conectando</div>
+            <small id="refreshCountdown">Proxima atualizacao em --</small>
+          </div>
         </header>
 
         <section class="filters" aria-label="Filtros de periodo">
@@ -64,7 +66,7 @@
 
         <div class="notice hidden" id="notice"></div>
 
-        <section class="global-overview">
+        <section class="global-overview" id="globalOverview">
           <div class="section-header">
             <div>
               <p class="eyebrow">Visao geral</p>
@@ -99,16 +101,6 @@
             </div>
             <div id="stageFunnel"></div>
           </article>
-        </section>
-
-        <section class="view" id="comparisonView">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Tendencia</p>
-              <h2>Comparativo com periodo anterior</h2>
-            </div>
-          </div>
-          <div class="metric-grid" id="comparisonGrid"></div>
         </section>
 
         <section class="view" id="workloadView">
