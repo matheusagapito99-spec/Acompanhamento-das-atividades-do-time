@@ -86,37 +86,41 @@ test('layout exposes board filter, settings modal, and productivity impact panel
   assert.equal(html.includes('id="individualImpact"'), true);
 });
 
-test('settings modal exposes target throughput and accordion card selection controls', () => {
+test('settings modal exposes automation controls and accordion card selection controls', () => {
   const html = fs.readFileSync('index.html', 'utf8');
   const app = fs.readFileSync('app.js', 'utf8');
   const styles = fs.readFileSync('styles.css', 'utf8');
 
   assert.equal(html.includes('aria-label="Abrir configura'), true);
   assert.equal(html.includes('data-settings-tab="cards"'), true);
+  assert.equal(html.includes('data-settings-tab="automation"'), true);
   assert.equal(html.includes('id="cardSelectionList"'), true);
   assert.equal(html.includes('id="includeAllCards"'), true);
-  assert.equal(html.includes('id="expectedThroughputInput"'), true);
+  assert.equal(html.includes('id="expectedThroughputInput"'), false);
+  assert.equal(html.includes('id="reportFrom"'), true);
+  assert.equal(html.includes('id="testReportRecipient"'), true);
+  assert.equal(html.includes('id="sendTestReport"'), true);
+  assert.equal(html.includes('m.agapito@avalyst.com.br'), true);
   assert.match(app, /<details class="card-selection-person"/);
   assert.match(styles, /\.sidebar\s*{[^}]*position:\s*sticky/s);
   assert.match(html, /Cards usados/);
 });
 
-test('productivity help explains the SEFK score without progressive penalty', () => {
+test('productivity help explains deadline reliability without throughput target', () => {
   const context = loadAppContext();
   const help = context.productivityHelp({
-    productivityBaseScore: 59,
-    productivityScore: 59,
-    productivitySettings: { expectedThroughput: 20 },
+    productivityBaseScore: 72,
+    productivityScore: 72,
     productivityBreakdown: {
-      throughput: { label: 'Indice de Vazao', value: 75, weight: 40 },
-      sle: { label: 'Indice de Previsibilidade / SLE', value: 36, weight: 40 },
-      flowHealth: { label: 'Indice de Saude do Fluxo', value: 75, weight: 20 },
+      deadlineReliability: { label: 'Confiabilidade de prazo', value: 75, weight: 60 },
+      backlogHealth: { label: 'Saude do backlog', value: 75, weight: 25 },
+      delaySeverity: { label: 'Severidade dos atrasos', value: 53, weight: 15 },
     },
   });
 
-  assert.match(help, /SEFK/);
-  assert.match(help, /Meta de vazao: 20 entregas/);
-  assert.match(help, /Score final: 59%/);
+  assert.match(help, /Confiabilidade de Prazo/);
+  assert.match(help, /Score final: 72%/);
+  assert.doesNotMatch(help, /Meta de vazao/i);
   assert.doesNotMatch(help, /progressiva/i);
   assert.doesNotMatch(help, /ponto por dia/i);
 });
