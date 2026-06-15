@@ -70,6 +70,32 @@ test('layout removes comparison tab and exposes refresh countdown', () => {
   assert.equal(html.includes('id="refreshCountdown"'), true);
 });
 
+test('layout exposes board filter, settings modal, and productivity impact panels', () => {
+  const html = fs.readFileSync('index.html', 'utf8');
+
+  assert.equal(html.includes('id="boardScope"'), true);
+  assert.equal(html.includes('id="settingsModal"'), true);
+  assert.equal(html.includes('id="productivityImpact"'), true);
+  assert.equal(html.includes('id="individualImpact"'), true);
+});
+
+test('productivity help explains base score and progressive late penalty', () => {
+  const context = loadAppContext();
+  const help = context.productivityHelp({
+    productivityBaseScore: 72,
+    productivityScore: 65,
+    latePenaltyPoints: 7,
+    productivitySettings: { latePenaltyPerDay: 0.25 },
+    productivityBreakdown: {
+      delivery: { label: 'Entregas realizadas', value: 80, weight: 25 },
+    },
+  });
+
+  assert.match(help, /Score base: 72%/);
+  assert.match(help, /Penalidade progressiva/);
+  assert.match(help, /0,25 ponto por dia/);
+});
+
 test('global overview is visible only on management tabs, not alerts or audit', () => {
   const context = loadAppContext();
 
