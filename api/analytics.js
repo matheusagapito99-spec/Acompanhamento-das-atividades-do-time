@@ -21,6 +21,8 @@ module.exports = async function handler(req, res) {
   try {
     const config = getDashboardConfig(process.env);
     const preset = req.query.preset || 'this-month';
+    const boardScope = req.query.boardScope || 'all';
+    const latePenaltyPerDay = req.query.latePenaltyPerDay;
     const range = req.query.start && req.query.end
       ? { start: req.query.start, end: req.query.end, label: 'Periodo personalizado' }
       : getPresetRange(preset, new Date());
@@ -35,6 +37,8 @@ module.exports = async function handler(req, res) {
       start: range.start,
       end: range.end,
       cycle: preset,
+      boardScope,
+      latePenaltyPerDay,
       referenceDate: new Date().toISOString(),
     });
 
