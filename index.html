@@ -214,16 +214,16 @@
           <button class="icon-button" id="closeSettings" type="button" aria-label="Fechar">&times;</button>
         </div>
         <div class="settings-tabs" role="tablist" aria-label="Configuracoes de produtividade">
-          <button class="settings-tab active" type="button" data-settings-tab="weights">Metas</button>
-          <button class="settings-tab" type="button" data-settings-tab="cards">Cards usados</button>
+          <button class="settings-tab active" type="button" data-settings-tab="cards">Cards usados</button>
+          <button class="settings-tab" type="button" data-settings-tab="automation">Automacao</button>
         </div>
-        <div class="settings-panel active" data-settings-panel="weights">
+        <div class="settings-panel hidden" data-settings-panel="weights">
           <p class="panel-note" id="settingsTargetNote">
             Esse peso mede a pressão de atraso usada nos componentes de controle de atraso e backlog vencido.
           </p>
           <label class="settings-field">
             Meta de entregas no periodo
-            <input type="number" id="expectedThroughputInput" min="1" max="999" step="1" aria-label="Meta de entregas no periodo">
+            <input type="hidden" id="legacyThroughputRemoved" value="">
           </label>
           <div class="settings-row">
             <span id="expectedThroughputPreview"></span>
@@ -233,7 +233,7 @@
             <button class="primary-button" id="saveSettings" type="button">Salvar metas</button>
           </div>
         </div>
-        <div class="settings-panel hidden" data-settings-panel="cards">
+        <div class="settings-panel active" data-settings-panel="cards">
           <p class="panel-note">
             Marque os cards que entram no calculo individual. Ao desmarcar um card, ele deixa de contar na produtividade daquela pessoa.
           </p>
@@ -242,6 +242,29 @@
           <div class="modal-actions">
             <button class="ghost-button" id="includeAllCards" type="button">Marcar todos</button>
           </div>
+        </div>
+        <div class="settings-panel hidden" data-settings-panel="automation">
+          <p class="panel-note">
+            Envio automatico toda segunda-feira com fechamento da semana anterior. Na primeira semana do mes, o e-mail tambem inclui o fechamento mensal.
+          </p>
+          <label class="settings-field">
+            Remetente
+            <select id="reportFrom" aria-label="Remetente do relatorio">
+              <option value="m.agapito@avalyst.com.br">m.agapito@avalyst.com.br</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            Colaborador do teste
+            <select id="testReportPerson" aria-label="Colaborador do envio teste"></select>
+          </label>
+          <label class="settings-field">
+            Destinatario do teste
+            <input type="email" id="testReportRecipient" placeholder="email@avalyst.com.br" aria-label="Destinatario do envio teste">
+          </label>
+          <div class="modal-actions">
+            <button class="primary-button" id="sendTestReport" type="button">Enviar teste</button>
+          </div>
+          <div class="automation-status" id="testReportStatus"></div>
         </div>
       </div>
     </div>
