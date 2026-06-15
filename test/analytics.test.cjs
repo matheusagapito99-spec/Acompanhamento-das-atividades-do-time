@@ -291,7 +291,7 @@ test('progressive late weight makes long delays cost more productivity points th
   assert.ok(longDelay.lostPoints > shortDelay.lostPoints);
   assert.ok(analytics.summary.latePenaltyPoints >= longDelay.lostPoints);
   assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
-  assert.ok(analytics.summary.productivityBreakdown.delayControl.value < 100);
+  assert.equal(analytics.summary.productivityBreakdown.sle.value, 0);
 });
 
 test('productivity score is a bounded Kanban flow score instead of an unbounded late subtraction', () => {
@@ -329,6 +329,84 @@ test('productivity score is a bounded Kanban flow score instead of an unbounded 
   assert.ok(analytics.summary.productivityScore > 0);
   assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
   assert.match(analytics.summary.productivityMethodology, /Kanban/);
+});
+
+test('productivity score follows SEFK with throughput, SLE, and flow health only', () => {
+  const baseSummary = {
+    delivered: 15,
+    deliveredWithDeadline: 25,
+    onTime: 9,
+    open: 20,
+    overdueOpen: 5,
+    late: 16,
+    active: 30,
+    productivitySettings: { expectedThroughput: 20 },
+  };
+
+  assert.equal(scorePerson({ ...baseSummary, latePenaltyPoints: 0 }), 59);
+  assert.equal(scorePerson({ ...baseSummary, latePenaltyPoints: 145.86 }), 59);
+});
+
+test('buildAnalytics exposes SEFK productivity components and target throughput', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 701,
+      title: 'Entrega no prazo',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      created_at: '2026-06-01T09:00:00-03:00',
+      close_date: '2026-06-03T18:00:00-03:00',
+      desired_date: '2026-06-04T18:00:00-03:00',
+      is_closed: true,
+    },
+    {
+      id: 702,
+      title: 'Entrega fora do SLE',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      created_at: '2026-06-01T09:00:00-03:00',
+      close_date: '2026-06-05T18:00:00-03:00',
+      desired_date: '2026-06-04T18:00:00-03:00',
+      is_closed: true,
+    },
+    {
+      id: 703,
+      title: 'Backlog vencido',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Em andamento',
+      created_at: '2026-06-01T09:00:00-03:00',
+      desired_date: '2026-06-02T18:00:00-03:00',
+      is_closed: false,
+    },
+    {
+      id: 704,
+      title: 'Backlog saudavel',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Em andamento',
+      created_at: '2026-06-01T09:00:00-03:00',
+      desired_date: '2026-06-20T18:00:00-03:00',
+      is_closed: false,
+    },
+  ], {
+    collaborators: ['Allana'],
+    boards: ['Demandas MKT'],
+    start: '2026-06-01',
+    end: '2026-06-08',
+    expectedThroughput: 4,
+    latePenaltyPerDay: 2,
+  });
+
+  assert.equal(analytics.summary.productivityScore, 50);
+  assert.equal(analytics.summary.productivitySettings.expectedThroughput, 4);
+  assert.deepEqual(Object.keys(analytics.summary.productivityBreakdown), ['throughput', 'sle', 'flowHealth']);
+  assert.equal(analytics.summary.productivityBreakdown.throughput.weight, 40);
+  assert.equal(analytics.summary.productivityBreakdown.sle.weight, 40);
+  assert.equal(analytics.summary.productivityBreakdown.flowHealth.weight, 20);
+  assert.match(analytics.summary.productivityMethodology, /SEFK/);
 });
 
 test('open overdue tasks appear in productivity impact lists for the team and the person', () => {
