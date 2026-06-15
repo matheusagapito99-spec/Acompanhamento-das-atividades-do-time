@@ -552,12 +552,42 @@ function buildLateImpactFromFlags(flags, period, settingsInput = {}) {
   };
 }
 
+function ratioScore(value) {
+  return clampNumber(Number(value || 0), 0, 1);
+}
+
+function hourEfficiencyScore(summary) {
+  const workedSeconds = Number(summary.workedSeconds || 0);
+  const estimatedSeconds = Number(summary.estimatedSeconds || 0);
+  if (workedSeconds > 0 && estimatedSeconds > 0) {
+    return ratioScore(estimatedSeconds / workedSeconds);
+  }
+  if (summary.delivered || summary.active) return 0.5;
+  return 0;
+}
+
+function averageLateDays(summary) {
+  const lateIssueCount = Number(summary.late || 0) + Number(summary.overdueOpen || 0);
+  if (!lateIssueCount) return 0;
+  const dailyWeight = Number(summary.productivitySettings?.latePenaltyPerDay || DEFAULT_LATE_PENALTY_PER_DAY);
+  if (!dailyWeight) return 0;
+  return Number(summary.latePenaltyPoints || 0) / dailyWeight / lateIssueCount;
+}
+
 function scoreBreakdown(summary) {
   const delivery = summary.active ? summary.delivered / summary.active : 0;
   const onTime = summary.deliveredWithDeadline ? summary.onTime / summary.deliveredWithDeadline : (summary.delivered ? 0.75 : 0);
-  const delayControl = summary.deliveredWithDeadline ? 1 - (summary.late / summary.deliveredWithDeadline) : (summary.delivered ? 0.75 : 0);
+  const deadlineReliability = summary.deliveredWithDeadline
+    ? 1 - (summary.late / summary.deliveredWithDeadline)
+    : (summary.delivered ? 0.75 : 0);
+  const agingLimitDays = 30;
+  const agingScore = 1 - Math.min(averageLateDays(summary), agingLimitDays) / agingLimitDays;
+  const hasLatePressure = Boolean(summary.late || summary.overdueOpen);
+  const delayControl = hasLatePressure
+    ? (deadlineReliability * 0.6) + (agingScore * 0.4)
+    : deadlineReliability;
   const backlogHealth = summary.open ? 1 - (summary.overdueOpen / summary.open) : 1;
-  const hourEfficiency = summary.flowEfficiency ? summary.flowEfficiency / 100 : (summary.delivered ? 0.5 : 0);
+  const hourEfficiency = hourEfficiencyScore(summary);
 
   return {
     delivery: { label: 'Entregas realizadas', value: roundPercent(delivery * 100), weight: 25 },
@@ -578,8 +608,7 @@ function scoreBasePerson(summary) {
 
 function scorePerson(summary) {
   const baseScore = Number(summary.productivityBaseScore ?? scoreBasePerson(summary));
-  const penalty = Number(summary.latePenaltyPoints || 0);
-  return roundPercent(baseScore - penalty);
+  return roundPercent(baseScore);
 }
 
 function averageDailyWip(tasks, period) {
@@ -630,7 +659,9 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
     flowEfficiency: 0,
     productivityBaseScore: 0,
     latePenaltyPoints: 0,
+    averageLateDays: 0,
     productivityScore: 0,
+    productivityMethodology: 'Kanban flow score: throughput, service level expectation, WIP aging, backlog health and effort efficiency.',
     productivitySettings,
     dueDateBasis: CURRENT_DEADLINE_BASIS,
   };
@@ -684,6 +715,7 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
   summary.cycleTimeDays = dailyThroughput ? Math.round((summary.averageDailyWip / dailyThroughput) * 10) / 10 : 0;
   summary.flowEfficiency = executionSeconds ? roundPercent((summary.deliveredWorkedSeconds / executionSeconds) * 100) : 0;
   summary.latePenaltyPoints = roundDecimal(summary.latePenaltyPoints, 2);
+  summary.averageLateDays = roundDecimal(averageLateDays(summary), 1);
   summary.productivityBreakdown = scoreBreakdown(summary);
   summary.productivityBaseScore = scoreBasePerson(summary);
   summary.productivityScore = scorePerson(summary);
