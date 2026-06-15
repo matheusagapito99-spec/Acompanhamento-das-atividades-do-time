@@ -253,7 +253,7 @@ test('buildAnalytics lets managers exclude individual cards from productivity ca
   assert.equal(analytics.scope.excludedTaskIdsByPerson.Allana[0], '1');
 });
 
-test('progressive late weight makes long delays cost more productivity points than short delays', () => {
+test('late severity ranks long delays above short delays without arbitrary daily weights', () => {
   const analytics = buildAnalytics([
     {
       id: 50,
@@ -282,25 +282,29 @@ test('progressive late weight makes long delays cost more productivity points th
     boards: ['Demandas MKT'],
     start: '2026-06-01',
     end: '2026-06-08',
-    latePenaltyPerDay: 0.5,
   });
 
   const [longDelay, shortDelay] = analytics.productivityImpacts;
   assert.equal(longDelay.title, 'Atraso de trinta e cinco dias');
   assert.equal(shortDelay.title, 'Atraso de uma hora');
   assert.ok(longDelay.lostPoints > shortDelay.lostPoints);
-  assert.ok(analytics.summary.latePenaltyPoints >= longDelay.lostPoints);
   assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
-  assert.equal(analytics.summary.productivityBreakdown.sle.value, 0);
+  assert.equal(analytics.summary.productivityBreakdown.deadlineReliability.value, 0);
+  assert.ok(analytics.summary.productivityBreakdown.delaySeverity.value < 50);
 });
 
-test('productivity score is a bounded Kanban flow score instead of an unbounded late subtraction', () => {
+test('productivity score is centered on deadline reliability and bounded delay severity', () => {
   const score = scorePerson({
-    productivityBaseScore: 32,
-    latePenaltyPoints: 145.86,
+    deliveredWithDeadline: 4,
+    onTime: 3,
+    open: 4,
+    overdueOpen: 1,
+    totalLateDays: 7,
+    lateIssueCount: 1,
+    periodDays: 8,
   });
 
-  assert.equal(score, 32);
+  assert.equal(score, 72);
 
   const analytics = buildAnalytics([
     {
@@ -321,33 +325,30 @@ test('productivity score is a bounded Kanban flow score instead of an unbounded 
     boards: ['Demandas MKT'],
     start: '2026-06-01',
     end: '2026-06-08',
-    latePenaltyPerDay: 0.2,
   });
 
   assert.equal(analytics.summary.delivered, 1);
-  assert.ok(analytics.summary.latePenaltyPoints > analytics.summary.productivityBaseScore);
   assert.ok(analytics.summary.productivityScore > 0);
   assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
-  assert.match(analytics.summary.productivityMethodology, /Kanban/);
+  assert.match(analytics.summary.productivityMethodology, /prazo/i);
 });
 
-test('productivity score follows SEFK with throughput, SLE, and flow health only', () => {
+test('productivity score uses deadline reliability, backlog health, and delay severity only', () => {
   const baseSummary = {
-    delivered: 15,
     deliveredWithDeadline: 25,
     onTime: 9,
     open: 20,
     overdueOpen: 5,
-    late: 16,
-    active: 30,
-    productivitySettings: { expectedThroughput: 20 },
+    totalLateDays: 30,
+    lateIssueCount: 3,
+    periodDays: 30,
   };
 
-  assert.equal(scorePerson({ ...baseSummary, latePenaltyPoints: 0 }), 59);
-  assert.equal(scorePerson({ ...baseSummary, latePenaltyPoints: 145.86 }), 59);
+  assert.equal(scorePerson({ ...baseSummary, delivered: 15 }), 52);
+  assert.equal(scorePerson({ ...baseSummary, delivered: 1 }), 52);
 });
 
-test('buildAnalytics exposes SEFK productivity components and target throughput', () => {
+test('buildAnalytics exposes deadline-centered productivity components without throughput target', () => {
   const analytics = buildAnalytics([
     {
       id: 701,
@@ -396,17 +397,16 @@ test('buildAnalytics exposes SEFK productivity components and target throughput'
     boards: ['Demandas MKT'],
     start: '2026-06-01',
     end: '2026-06-08',
-    expectedThroughput: 4,
-    latePenaltyPerDay: 2,
   });
 
-  assert.equal(analytics.summary.productivityScore, 50);
-  assert.equal(analytics.summary.productivitySettings.expectedThroughput, 4);
-  assert.deepEqual(Object.keys(analytics.summary.productivityBreakdown), ['throughput', 'sle', 'flowHealth']);
-  assert.equal(analytics.summary.productivityBreakdown.throughput.weight, 40);
-  assert.equal(analytics.summary.productivityBreakdown.sle.weight, 40);
-  assert.equal(analytics.summary.productivityBreakdown.flowHealth.weight, 20);
-  assert.match(analytics.summary.productivityMethodology, /SEFK/);
+  assert.ok(analytics.summary.productivityScore >= 50);
+  assert.ok(analytics.summary.productivityScore <= 60);
+  assert.equal(Object.hasOwn(analytics.summary.productivitySettings, 'expectedThroughput'), false);
+  assert.deepEqual(Object.keys(analytics.summary.productivityBreakdown), ['deadlineReliability', 'backlogHealth', 'delaySeverity']);
+  assert.equal(analytics.summary.productivityBreakdown.deadlineReliability.weight, 60);
+  assert.equal(analytics.summary.productivityBreakdown.backlogHealth.weight, 25);
+  assert.equal(analytics.summary.productivityBreakdown.delaySeverity.weight, 15);
+  assert.match(analytics.summary.productivityMethodology, /Confiabilidade de Prazo/);
 });
 
 test('open overdue tasks appear in productivity impact lists for the team and the person', () => {
@@ -427,7 +427,6 @@ test('open overdue tasks appear in productivity impact lists for the team and th
     boards: ['Demandas MKT'],
     start: '2026-06-01',
     end: '2026-06-08',
-    latePenaltyPerDay: 0.25,
   });
 
   assert.equal(analytics.productivityImpacts.length, 1);
