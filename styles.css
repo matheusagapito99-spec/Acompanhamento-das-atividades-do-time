@@ -804,7 +804,9 @@ th {
 }
 
 .settings-modal {
-  width: min(520px, 100%);
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -822,6 +824,40 @@ th {
   cursor: pointer;
   font-size: 20px;
   line-height: 1;
+}
+
+.settings-tabs {
+  margin-top: 16px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.settings-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.settings-tab.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 2px 8px rgba(16, 36, 56, 0.08);
+}
+
+.settings-panel {
+  margin-top: 16px;
+}
+
+.settings-panel.hidden {
+  display: none;
 }
 
 .settings-field {
@@ -848,6 +884,81 @@ th {
 .settings-row span {
   color: var(--muted);
   font-size: 13px;
+}
+
+.card-selection-summary {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card-selection-list {
+  display: grid;
+  gap: 14px;
+  max-height: 52vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.card-selection-person {
+  display: grid;
+  gap: 8px;
+}
+
+.card-selection-person-head,
+.card-selection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.card-selection-person-head {
+  color: var(--ink);
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.card-selection-person-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card-selection-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.card-selection-row.excluded {
+  background: #f8fafc;
+  color: var(--muted);
+}
+
+.card-selection-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.card-selection-main strong,
+.card-selection-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-selection-main small {
+  color: var(--muted);
+}
+
+.card-selection-impact {
+  color: var(--red);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .modal-actions {
