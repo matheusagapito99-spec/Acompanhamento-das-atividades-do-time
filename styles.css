@@ -44,6 +44,10 @@ select {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
@@ -875,9 +879,9 @@ th {
   margin-top: 18px;
 }
 
-.settings-field input[type="range"] {
-  width: 100%;
-  padding: 0;
+.settings-field input {
+  margin-top: 8px;
+  width: min(220px, 100%);
 }
 
 .settings-row {
@@ -912,8 +916,10 @@ th {
 }
 
 .card-selection-person {
-  display: grid;
-  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
 }
 
 .card-selection-person-head,
@@ -926,8 +932,33 @@ th {
 
 .card-selection-person-head {
   color: var(--ink);
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.card-selection-person-head::-webkit-details-marker {
+  display: none;
+}
+
+.card-selection-person-head::after {
+  content: "+";
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.card-selection-person[open] {
+  box-shadow: 0 10px 24px rgba(16, 36, 56, 0.08);
+}
+
+.card-selection-person[open] .card-selection-person-head::after {
+  content: "-";
 }
 
 .card-selection-person-head span {
@@ -942,6 +973,13 @@ th {
   border-radius: 8px;
   padding: 8px 10px;
   background: #fff;
+}
+
+.card-selection-items {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .card-selection-row.excluded {
