@@ -1,6 +1,43 @@
+const DEFAULT_LATE_PENALTY_PER_DAY = 0.2;
+const STORAGE_KEYS = {
+  boardScope: 'runrunit-dashboard-board-scope',
+  productivitySettings: 'runrunit-dashboard-productivity-settings',
+};
+
+function sanitizeLatePenalty(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return DEFAULT_LATE_PENALTY_PER_DAY;
+  return Math.max(0, Math.min(2, Math.round(number * 100) / 100));
+}
+
+function readStoredBoardScope() {
+  try {
+    const value = window.localStorage?.getItem(STORAGE_KEYS.boardScope);
+    return ['all', 'marketing', 'creation'].includes(value) ? value : 'all';
+  } catch (error) {
+    return 'all';
+  }
+}
+
+function readStoredSettings() {
+  try {
+    const raw = window.localStorage?.getItem(STORAGE_KEYS.productivitySettings);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      latePenaltyPerDay: sanitizeLatePenalty(parsed.latePenaltyPerDay),
+    };
+  } catch (error) {
+    return {
+      latePenaltyPerDay: DEFAULT_LATE_PENALTY_PER_DAY,
+    };
+  }
+}
+
 const state = {
   data: null,
   preset: 'this-week',
+  boardScope: readStoredBoardScope(),
+  settings: readStoredSettings(),
   selectedPerson: 'Allana',
   currentRequest: { preset: 'this-week' },
   loading: false,
@@ -21,16 +58,27 @@ const els = {
   peopleSummary: document.getElementById('peopleSummary'),
   boardBreakdown: document.getElementById('boardBreakdown'),
   stageFunnel: document.getElementById('stageFunnel'),
+  productivityImpact: document.getElementById('productivityImpact'),
   workloadRows: document.getElementById('workloadRows'),
   personSelect: document.getElementById('personSelect'),
   individualTitle: document.getElementById('individualTitle'),
   individualMetrics: document.getElementById('individualMetrics'),
   individualBreakdowns: document.getElementById('individualBreakdowns'),
+  individualImpact: document.getElementById('individualImpact'),
   individualTasks: document.getElementById('individualTasks'),
   alertsList: document.getElementById('alertsList'),
   auditTable: document.getElementById('auditTable'),
   startDate: document.getElementById('startDate'),
   endDate: document.getElementById('endDate'),
+  boardScope: document.getElementById('boardScope'),
+  settingsButton: document.getElementById('settingsButton'),
+  settingsModal: document.getElementById('settingsModal'),
+  closeSettings: document.getElementById('closeSettings'),
+  latePenaltyRange: document.getElementById('latePenaltyRange'),
+  latePenaltyInput: document.getElementById('latePenaltyInput'),
+  latePenaltyPreview: document.getElementById('latePenaltyPreview'),
+  resetSettings: document.getElementById('resetSettings'),
+  saveSettings: document.getElementById('saveSettings'),
 };
 
 const METRICS = [
@@ -40,8 +88,8 @@ const METRICS = [
     type: 'percent',
     polarity: 'higher',
     tone: (summary) => (summary.productivityScore >= 70 ? 'positive' : summary.productivityScore >= 50 ? 'warning' : 'negative'),
-    detail: (summary) => `${formatNumber(summary.delivered)} entregas | ${formatNumber(summary.overdueOpen)} abertas vencidas`,
-    help: 'Coeficiente transparente: entregas realizadas, entregas no prazo, atrasos, backlog vencido e eficiencia de horas.',
+    detail: (summary) => `${formatNumber(summary.delivered)} entregas | -${formatPoints(summary.latePenaltyPoints)} por atrasos`,
+    help: (summary) => productivityHelp(summary),
   },
   {
     key: 'opened',
@@ -161,6 +209,36 @@ function formatPercent(value) {
   return `${Math.round(Number(value || 0))}%`;
 }
 
+function formatDecimal(value, maximumFractionDigits = 2) {
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(Number(value || 0));
+}
+
+function formatPoints(value) {
+  return `${formatDecimal(value, 2)} pts`;
+}
+
+function productivityHelp(summary = {}) {
+  const breakdown = summary.productivityBreakdown || {};
+  const parts = Object.values(breakdown).map((item) => {
+    return `${item.label}: ${formatPercent(item.value)} x ${formatNumber(item.weight)} pts`;
+  });
+  const baseScore = summary.productivityBaseScore ?? summary.productivityScore ?? 0;
+  const penalty = Number(summary.latePenaltyPoints || 0);
+  const dailyWeight = summary.productivitySettings?.latePenaltyPerDay ?? state.settings.latePenaltyPerDay;
+
+  return [
+    'Calculo da produtividade:',
+    ...parts,
+    `Score base: ${formatPercent(baseScore)}`,
+    `Penalidade progressiva: -${formatPoints(penalty)}`,
+    `Peso atual: ${formatDecimal(dailyWeight, 2)} ponto por dia de atraso`,
+    `Score final: ${formatPercent(baseScore)} - ${formatPoints(penalty)} = ${formatPercent(summary.productivityScore)}`,
+  ].join('\n');
+}
+
 function formatDays(value) {
   const number = Number(value || 0);
   return number ? `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(number)}d` : '0d';
@@ -232,12 +310,13 @@ function renderMetricCard(definition, summary, comparison) {
   const previous = item ? item.previous : 0;
   const tone = definition.tone ? definition.tone(summary) : '';
   const detail = typeof definition.detail === 'function' ? definition.detail(summary) : definition.detail;
+  const help = typeof definition.help === 'function' ? definition.help(summary) : definition.help;
 
   return `
     <article class="metric-card ${tone}">
       <div class="metric-top">
         <span>${escapeHtml(definition.label)}</span>
-        <button class="metric-help" type="button" aria-label="Como calculamos ${escapeHtml(definition.label)}" data-help="${escapeHtml(definition.help)}">?</button>
+        <button class="metric-help" type="button" aria-label="Como calculamos ${escapeHtml(definition.label)}" data-help="${escapeHtml(help)}">?</button>
       </div>
       <div class="metric-value-row">
         <strong>${formatMetricValue(definition, value)}</strong>
@@ -289,8 +368,40 @@ function renderStageFunnelHtml(stageFunnel) {
   `;
 }
 
+function renderImpactList(rows = []) {
+  if (!rows.length) {
+    return '<p class="empty">Sem tarefas com perda progressiva por atraso neste periodo.</p>';
+  }
+
+  return `
+    <div class="impact-list">
+      ${rows.map((row) => `
+        <div class="impact-row">
+          <div class="impact-main">
+            <strong>${escapeHtml(row.title)}</strong>
+            <span>${escapeHtml(row.collaborator || row.assignee || 'Sem responsavel')} | ${escapeHtml(row.board)} | ${escapeHtml(row.stage)}</span>
+            <div class="mini-stats">
+              <span>${escapeHtml(row.reason || 'Atraso')}</span>
+              <span>Prazo ${formatDate(row.dueDate)}</span>
+              <span>${formatSeconds(row.lateSeconds)} de atraso</span>
+            </div>
+          </div>
+          <div class="impact-score">
+            <strong>-${formatPoints(row.lostPoints)}</strong>
+            <span>perda estimada</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderStageFunnel() {
   els.stageFunnel.innerHTML = renderStageFunnelHtml(state.data.stageFunnel);
+}
+
+function renderProductivityImpact() {
+  els.productivityImpact.innerHTML = renderImpactList(state.data.productivityImpacts || []);
 }
 
 function renderPeople() {
@@ -350,6 +461,7 @@ function renderIndividual() {
   if (!person) return;
   els.individualTitle.textContent = person.name;
   renderMetrics(els.individualMetrics, person.summary, person.comparison);
+  els.individualImpact.innerHTML = renderImpactList(person.productivityImpacts || []);
 
   els.individualBreakdowns.innerHTML = [
     '<h3>Gargalos individuais</h3>',
@@ -441,9 +553,14 @@ function renderAll() {
   els.periodTitle.textContent = `${data.range?.label || 'Periodo'} | ${formatDate(data.period.start)} a ${formatDate(data.period.end)}`;
   els.startDate.value = data.period.start || '';
   els.endDate.value = data.period.end || '';
+  if (els.boardScope) {
+    state.boardScope = data.scope?.boardScope || state.boardScope;
+    els.boardScope.value = state.boardScope;
+  }
   renderMetrics(els.metricGrid, data.summary, comparison);
   renderPeople();
   els.boardBreakdown.innerHTML = renderBarHtml(data.breakdowns.boards);
+  renderProductivityImpact();
   renderStageFunnel();
   renderWorkload();
   renderIndividual();
@@ -508,6 +625,40 @@ function startAutoRefresh() {
   }, 1000);
 }
 
+function persistBoardScope() {
+  try {
+    window.localStorage?.setItem(STORAGE_KEYS.boardScope, state.boardScope);
+  } catch (error) {
+    // Local storage can be unavailable in private or embedded contexts.
+  }
+}
+
+function persistSettings() {
+  try {
+    window.localStorage?.setItem(STORAGE_KEYS.productivitySettings, JSON.stringify(state.settings));
+  } catch (error) {
+    // Local storage can be unavailable in private or embedded contexts.
+  }
+}
+
+function syncSettingsControls(value = state.settings.latePenaltyPerDay) {
+  const sanitized = sanitizeLatePenalty(value);
+  if (els.latePenaltyRange) els.latePenaltyRange.value = String(sanitized);
+  if (els.latePenaltyInput) els.latePenaltyInput.value = String(sanitized);
+  if (els.latePenaltyPreview) {
+    els.latePenaltyPreview.textContent = `${formatDecimal(sanitized, 2)} ponto/dia | 30 dias = ${formatPoints(sanitized * 30)}`;
+  }
+}
+
+function openSettingsModal() {
+  syncSettingsControls();
+  els.settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  els.settingsModal.classList.add('hidden');
+}
+
 async function loadData(params = state.currentRequest, options = {}) {
   if (state.loading) return;
   state.loading = true;
@@ -519,6 +670,8 @@ async function loadData(params = state.currentRequest, options = {}) {
 
   const query = new URLSearchParams();
   query.set('_', String(Date.now()));
+  query.set('boardScope', state.boardScope);
+  query.set('latePenaltyPerDay', String(state.settings.latePenaltyPerDay));
   if (params.start && params.end) {
     query.set('start', params.start);
     query.set('end', params.end);
@@ -562,6 +715,38 @@ document.querySelectorAll('.preset').forEach((button) => {
     button.classList.add('active');
     loadData({ preset: state.preset });
   });
+});
+
+els.boardScope.value = state.boardScope;
+els.boardScope.addEventListener('change', () => {
+  state.boardScope = els.boardScope.value;
+  persistBoardScope();
+  loadData(state.currentRequest);
+});
+
+els.settingsButton.addEventListener('click', openSettingsModal);
+els.closeSettings.addEventListener('click', closeSettingsModal);
+els.settingsModal.addEventListener('click', (event) => {
+  if (event.target === els.settingsModal) closeSettingsModal();
+});
+
+els.latePenaltyRange.addEventListener('input', () => {
+  syncSettingsControls(els.latePenaltyRange.value);
+});
+
+els.latePenaltyInput.addEventListener('input', () => {
+  syncSettingsControls(els.latePenaltyInput.value);
+});
+
+els.resetSettings.addEventListener('click', () => {
+  syncSettingsControls(DEFAULT_LATE_PENALTY_PER_DAY);
+});
+
+els.saveSettings.addEventListener('click', () => {
+  state.settings.latePenaltyPerDay = sanitizeLatePenalty(els.latePenaltyInput.value);
+  persistSettings();
+  closeSettingsModal();
+  loadData(state.currentRequest);
 });
 
 document.getElementById('applyCustom').addEventListener('click', () => {
