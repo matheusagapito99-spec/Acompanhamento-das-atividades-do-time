@@ -208,24 +208,40 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Configuracoes</p>
-            <h2 id="settingsTitle">Peso diario de atraso</h2>
+            <h2 id="settingsTitle">Produtividade</h2>
           </div>
           <button class="icon-button" id="closeSettings" type="button" aria-label="Fechar">&times;</button>
         </div>
-        <p class="panel-note">
-          Esse peso subtrai pontos da produtividade conforme os dias de atraso de cada tarefa.
-        </p>
-        <label class="settings-field">
-          Pontos perdidos por dia atrasado
-          <input type="range" id="latePenaltyRange" min="0" max="2" step="0.05">
-        </label>
-        <div class="settings-row">
-          <input type="number" id="latePenaltyInput" min="0" max="2" step="0.05" aria-label="Pontos por dia atrasado">
-          <span id="latePenaltyPreview"></span>
+        <div class="settings-tabs" role="tablist" aria-label="Configuracoes de produtividade">
+          <button class="settings-tab active" type="button" data-settings-tab="weights">Pesos</button>
+          <button class="settings-tab" type="button" data-settings-tab="cards">Cards usados</button>
         </div>
-        <div class="modal-actions">
-          <button class="ghost-button" id="resetSettings" type="button">Padrao</button>
-          <button class="primary-button" id="saveSettings" type="button">Salvar</button>
+        <div class="settings-panel active" data-settings-panel="weights">
+          <p class="panel-note">
+            Esse peso subtrai pontos da produtividade conforme os dias de atraso de cada tarefa.
+          </p>
+          <label class="settings-field">
+            Pontos perdidos por dia atrasado
+            <input type="range" id="latePenaltyRange" min="0" max="2" step="0.05">
+          </label>
+          <div class="settings-row">
+            <input type="number" id="latePenaltyInput" min="0" max="2" step="0.05" aria-label="Pontos por dia atrasado">
+            <span id="latePenaltyPreview"></span>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost-button" id="resetSettings" type="button">Padrao</button>
+            <button class="primary-button" id="saveSettings" type="button">Salvar pesos</button>
+          </div>
+        </div>
+        <div class="settings-panel hidden" data-settings-panel="cards">
+          <p class="panel-note">
+            Marque os cards que entram no calculo individual. Ao desmarcar um card, ele deixa de contar na produtividade daquela pessoa.
+          </p>
+          <div class="card-selection-summary" id="cardSelectionSummary">Carregando cards usados no calculo.</div>
+          <div class="card-selection-list" id="cardSelectionList"></div>
+          <div class="modal-actions">
+            <button class="ghost-button" id="includeAllCards" type="button">Marcar todos</button>
+          </div>
         </div>
       </div>
     </div>
