@@ -2,10 +2,6 @@ const DAY_SECONDS = 86400;
 const DAY_MS = DAY_SECONDS * 1000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const CURRENT_DEADLINE_BASIS = 'current_deadline';
-const DEFAULT_LATE_PENALTY_PER_DAY = 0.2;
-const MAX_LATE_PENALTY_PER_DAY = 5;
-const DEFAULT_EXPECTED_THROUGHPUT = 20;
-const MAX_EXPECTED_THROUGHPUT = 999;
 const PRODUCTIVITY_IMPACT_LIMIT = 8;
 
 const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de MKT', 'Demandas de Marketing'];
@@ -473,19 +469,7 @@ function clampNumber(value, min, max) {
 }
 
 function normalizeProductivitySettings(options = {}) {
-  const rawValue = options.latePenaltyPerDay
-    ?? options.lateDailyPenalty
-    ?? DEFAULT_LATE_PENALTY_PER_DAY;
-  const latePenaltyPerDay = clampNumber(Number(rawValue), 0, MAX_LATE_PENALTY_PER_DAY);
-  const rawExpectedThroughput = options.expectedThroughput
-    ?? options.throughputTarget
-    ?? DEFAULT_EXPECTED_THROUGHPUT;
-  const expectedThroughput = clampNumber(Number(rawExpectedThroughput), 1, MAX_EXPECTED_THROUGHPUT);
-
-  return {
-    latePenaltyPerDay: roundDecimal(latePenaltyPerDay, 2),
-    expectedThroughput: roundDecimal(expectedThroughput, 1),
-  };
+  return {};
 }
 
 function normalizeIdList(value) {
@@ -534,7 +518,6 @@ function isTaskExcludedFromProductivity(task, collaborators = [], excludedTaskId
 }
 
 function buildLateImpactFromFlags(flags, period, settingsInput = {}) {
-  const settings = normalizeProductivitySettings(settingsInput);
   const comparisonDate = flags.late
     ? flags.closeDate
     : (flags.overdueOpen ? period.end : null);
@@ -549,12 +532,11 @@ function buildLateImpactFromFlags(flags, period, settingsInput = {}) {
 
   const lateSeconds = Math.max(0, Math.round((comparisonDate.getTime() - flags.dueDate.getTime()) / 1000));
   const lateDays = lateSeconds / DAY_SECONDS;
-  const lostPoints = lateDays * settings.latePenaltyPerDay;
 
   return {
     lateSeconds,
     lateDays: roundDecimal(lateDays, 2),
-    lostPoints: roundDecimal(lostPoints, 2),
+    lostPoints: roundDecimal(lateDays, 2),
     reason: flags.overdueOpen ? 'Aberta vencida' : 'Entrega atrasada',
   };
 }
@@ -574,23 +556,26 @@ function hourEfficiencyScore(summary) {
 }
 
 function averageLateDays(summary) {
-  const lateIssueCount = Number(summary.late || 0) + Number(summary.overdueOpen || 0);
+  const lateIssueCount = Number(summary.lateIssueCount || 0);
   if (!lateIssueCount) return 0;
-  const dailyWeight = Number(summary.productivitySettings?.latePenaltyPerDay || DEFAULT_LATE_PENALTY_PER_DAY);
-  if (!dailyWeight) return 0;
-  return Number(summary.latePenaltyPoints || 0) / dailyWeight / lateIssueCount;
+  return Number(summary.totalLateDays || 0) / lateIssueCount;
 }
 
 function scoreBreakdown(summary) {
-  const expectedThroughput = Number(summary.productivitySettings?.expectedThroughput || DEFAULT_EXPECTED_THROUGHPUT);
-  const throughput = expectedThroughput ? ratioScore(summary.delivered / expectedThroughput) : 0;
-  const sle = summary.deliveredWithDeadline ? ratioScore(summary.onTime / summary.deliveredWithDeadline) : 0;
-  const flowHealth = summary.open ? ratioScore(1 - (summary.overdueOpen / summary.open)) : 1;
+  const deadlineReliability = summary.deliveredWithDeadline
+    ? ratioScore(summary.onTime / summary.deliveredWithDeadline)
+    : 0;
+  const backlogHealth = summary.open ? ratioScore(1 - (summary.overdueOpen / summary.open)) : 1;
+  const averageDelay = averageLateDays(summary);
+  const periodDays = Math.max(1, Number(summary.periodDays || 1));
+  const delaySeverity = summary.lateIssueCount
+    ? ratioScore(1 / (1 + (averageDelay / periodDays)))
+    : 1;
 
   return {
-    throughput: { label: 'Indice de Vazao', value: roundPercent(throughput * 100), weight: 40 },
-    sle: { label: 'Indice de Previsibilidade / SLE', value: roundPercent(sle * 100), weight: 40 },
-    flowHealth: { label: 'Indice de Saude do Fluxo', value: roundPercent(flowHealth * 100), weight: 20 },
+    deadlineReliability: { label: 'Confiabilidade de prazo', value: roundPercent(deadlineReliability * 100), weight: 60 },
+    backlogHealth: { label: 'Saude do backlog', value: roundPercent(backlogHealth * 100), weight: 25 },
+    delaySeverity: { label: 'Severidade dos atrasos', value: roundPercent(delaySeverity * 100), weight: 15 },
   };
 }
 
@@ -653,11 +638,14 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
     averageDailyWip: 0,
     cycleTimeDays: 0,
     flowEfficiency: 0,
+    periodDays: daysBetween(period.startKey, period.endKey) + 1,
     productivityBaseScore: 0,
     latePenaltyPoints: 0,
+    totalLateDays: 0,
+    lateIssueCount: 0,
     averageLateDays: 0,
     productivityScore: 0,
-    productivityMethodology: 'SEFK: Score de Eficiencia de Fluxo Kanban baseado em vazao esperada, SLE e saude do fluxo.',
+    productivityMethodology: 'Confiabilidade de Prazo: 60% entregas no prazo, 25% saude do backlog e 15% severidade dos atrasos.',
     productivitySettings,
     dueDateBasis: CURRENT_DEADLINE_BASIS,
   };
@@ -687,7 +675,11 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
     if (flags.atRisk) summary.atRisk += 1;
 
     const lateImpact = buildLateImpactFromFlags(flags, period, productivitySettings);
-    summary.latePenaltyPoints += lateImpact.lostPoints;
+    if (lateImpact.lateDays > 0) {
+      summary.totalLateDays += lateImpact.lateDays;
+      summary.lateIssueCount += 1;
+      summary.latePenaltyPoints += lateImpact.lostPoints;
+    }
 
     if (flags.active) {
       summary.workedSeconds += getWorkedSeconds(task);
@@ -711,6 +703,7 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
   summary.cycleTimeDays = dailyThroughput ? Math.round((summary.averageDailyWip / dailyThroughput) * 10) / 10 : 0;
   summary.flowEfficiency = executionSeconds ? roundPercent((summary.deliveredWorkedSeconds / executionSeconds) * 100) : 0;
   summary.latePenaltyPoints = roundDecimal(summary.latePenaltyPoints, 2);
+  summary.totalLateDays = roundDecimal(summary.totalLateDays, 2);
   summary.averageLateDays = roundDecimal(averageLateDays(summary), 1);
   summary.productivityBreakdown = scoreBreakdown(summary);
   summary.productivityBaseScore = scoreBasePerson(summary);
