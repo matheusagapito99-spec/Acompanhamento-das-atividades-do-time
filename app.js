@@ -1,13 +1,13 @@
-const DEFAULT_LATE_PENALTY_PER_DAY = 0.2;
+const DEFAULT_EXPECTED_THROUGHPUT = 20;
 const STORAGE_KEYS = {
   boardScope: 'runrunit-dashboard-board-scope',
   productivitySettings: 'runrunit-dashboard-productivity-settings',
 };
 
-function sanitizeLatePenalty(value) {
+function sanitizeExpectedThroughput(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return DEFAULT_LATE_PENALTY_PER_DAY;
-  return Math.max(0, Math.min(2, Math.round(number * 100) / 100));
+  if (!Number.isFinite(number)) return DEFAULT_EXPECTED_THROUGHPUT;
+  return Math.max(1, Math.min(999, Math.round(number)));
 }
 
 function sanitizeExcludedTaskIdsByPerson(value = {}) {
@@ -36,12 +36,12 @@ function readStoredSettings() {
     const raw = window.localStorage?.getItem(STORAGE_KEYS.productivitySettings);
     const parsed = raw ? JSON.parse(raw) : {};
     return {
-      latePenaltyPerDay: sanitizeLatePenalty(parsed.latePenaltyPerDay),
+      expectedThroughput: sanitizeExpectedThroughput(parsed.expectedThroughput),
       excludedTaskIdsByPerson: sanitizeExcludedTaskIdsByPerson(parsed.excludedTaskIdsByPerson),
     };
   } catch (error) {
     return {
-      latePenaltyPerDay: DEFAULT_LATE_PENALTY_PER_DAY,
+      expectedThroughput: DEFAULT_EXPECTED_THROUGHPUT,
       excludedTaskIdsByPerson: {},
     };
   }
@@ -89,9 +89,9 @@ const els = {
   settingsButton: document.getElementById('settingsButton'),
   settingsModal: document.getElementById('settingsModal'),
   closeSettings: document.getElementById('closeSettings'),
-  latePenaltyRange: document.getElementById('latePenaltyRange'),
-  latePenaltyInput: document.getElementById('latePenaltyInput'),
-  latePenaltyPreview: document.getElementById('latePenaltyPreview'),
+  settingsTargetNote: document.getElementById('settingsTargetNote'),
+  expectedThroughputInput: document.getElementById('expectedThroughputInput'),
+  expectedThroughputPreview: document.getElementById('expectedThroughputPreview'),
   cardSelectionSummary: document.getElementById('cardSelectionSummary'),
   cardSelectionList: document.getElementById('cardSelectionList'),
   includeAllCards: document.getElementById('includeAllCards'),
@@ -106,7 +106,7 @@ const METRICS = [
     type: 'percent',
     polarity: 'higher',
     tone: (summary) => (summary.productivityScore >= 70 ? 'positive' : summary.productivityScore >= 50 ? 'warning' : 'negative'),
-    detail: (summary) => `${formatNumber(summary.delivered)} entregas | ${formatPoints(summary.latePenaltyPoints)} de pressão`,
+    detail: (summary) => `${formatNumber(summary.delivered)} entregas | meta ${formatNumber(summary.productivitySettings?.expectedThroughput || DEFAULT_EXPECTED_THROUGHPUT)}`,
     help: (summary) => productivityHelp(summary),
   },
   {
@@ -239,6 +239,26 @@ function formatPoints(value) {
 }
 
 function productivityHelp(summary = {}) {
+  {
+    const breakdown = summary.productivityBreakdown || {};
+    const parts = Object.values(breakdown).map((item) => {
+      return `${item.label}: ${formatPercent(item.value)} x ${formatNumber(item.weight)} pts`;
+    });
+    const expectedThroughput = summary.productivitySettings?.expectedThroughput
+      || state.settings.expectedThroughput
+      || DEFAULT_EXPECTED_THROUGHPUT;
+
+    return [
+      'Calculo da produtividade (SEFK):',
+      'Metodologia: Score de Eficiencia de Fluxo Kanban, combinando vazao esperada, previsibilidade/SLE e saude do fluxo.',
+      'Formula: (40% x Indice de Vazao) + (40% x Indice de Previsibilidade/SLE) + (20% x Indice de Saude do Fluxo).',
+      ...parts,
+      `Meta de vazao: ${formatNumber(expectedThroughput)} entregas no periodo`,
+      `Score final: ${formatPercent(summary.productivityScore)}`,
+      'Atrasos antigos aparecem no SLE e na saude do fluxo, sem subtracao diaria acumulada.',
+    ].join('\n');
+  }
+
   const breakdown = summary.productivityBreakdown || {};
   const parts = Object.values(breakdown).map((item) => {
     return `${item.label}: ${formatPercent(item.value)} x ${formatNumber(item.weight)} pts`;
@@ -391,7 +411,7 @@ function renderStageFunnelHtml(stageFunnel) {
 
 function renderImpactList(rows = []) {
   if (!rows.length) {
-    return '<p class="empty">Sem tarefas com perda progressiva por atraso neste periodo.</p>';
+    return '<p class="empty">Sem tarefas vencidas ou entregues fora do prazo neste periodo.</p>';
   }
 
   return `
@@ -408,8 +428,8 @@ function renderImpactList(rows = []) {
             </div>
           </div>
           <div class="impact-score">
-            <strong>-${formatPoints(row.lostPoints)}</strong>
-            <span>perda estimada</span>
+            <strong>${formatDecimal(row.lateDays || 0, 1)}d</strong>
+            <span>fora do fluxo</span>
           </div>
         </div>
       `).join('')}
@@ -458,28 +478,30 @@ function renderCardSelection() {
 
   els.cardSelectionSummary.textContent = `${formatNumber(included)} marcados | ${formatNumber(excluded)} desmarcados`;
   els.cardSelectionList.innerHTML = people.map((person) => `
-    <section class="card-selection-person">
-      <div class="card-selection-person-head">
+    <details class="card-selection-person">
+      <summary class="card-selection-person-head">
         <strong>${escapeHtml(person.name)}</strong>
         <span>${formatNumber(person.included)}/${formatNumber(person.total)} usados</span>
+      </summary>
+      <div class="card-selection-items">
+        ${person.cards.length ? person.cards.map((card) => `
+          <label class="card-selection-row ${card.included ? '' : 'excluded'}">
+            <input
+              type="checkbox"
+              class="card-selection-toggle"
+              data-person="${escapeHtml(person.name)}"
+              data-card-id="${escapeHtml(card.id)}"
+              ${card.included ? 'checked' : ''}
+            >
+            <span class="card-selection-main">
+              <strong>#${escapeHtml(card.id || 'sem ID')} ${escapeHtml(card.title)}</strong>
+              <small>${escapeHtml(card.board)} | ${escapeHtml(card.stage)}</small>
+            </span>
+            <span class="card-selection-impact">${formatDecimal(card.lateDays || 0, 1)}d fora do fluxo</span>
+          </label>
+        `).join('') : '<p class="empty">Sem cards para esta pessoa no periodo.</p>'}
       </div>
-      ${person.cards.length ? person.cards.map((card) => `
-        <label class="card-selection-row ${card.included ? '' : 'excluded'}">
-          <input
-            type="checkbox"
-            class="card-selection-toggle"
-            data-person="${escapeHtml(person.name)}"
-            data-card-id="${escapeHtml(card.id)}"
-            ${card.included ? 'checked' : ''}
-          >
-          <span class="card-selection-main">
-            <strong>#${escapeHtml(card.id || 'sem ID')} ${escapeHtml(card.title)}</strong>
-            <small>${escapeHtml(card.board)} | ${escapeHtml(card.stage)}</small>
-          </span>
-          <span class="card-selection-impact">-${formatPoints(card.lostPoints || 0)}</span>
-        </label>
-      `).join('') : '<p class="empty">Sem cards para esta pessoa no periodo.</p>'}
-    </section>
+    </details>
   `).join('');
 }
 
@@ -768,12 +790,14 @@ function setSettingsTab(tabName) {
   });
 }
 
-function syncSettingsControls(value = state.settings.latePenaltyPerDay) {
-  const sanitized = sanitizeLatePenalty(value);
-  if (els.latePenaltyRange) els.latePenaltyRange.value = String(sanitized);
-  if (els.latePenaltyInput) els.latePenaltyInput.value = String(sanitized);
-  if (els.latePenaltyPreview) {
-    els.latePenaltyPreview.textContent = `${formatDecimal(sanitized, 2)} ponto/dia | 30 dias = ${formatPoints(sanitized * 30)}`;
+function syncSettingsControls(value = state.settings.expectedThroughput) {
+  const sanitized = sanitizeExpectedThroughput(value);
+  if (els.settingsTargetNote) {
+    els.settingsTargetNote.textContent = 'Informe a meta de entregas esperada para o periodo selecionado. Ela alimenta o indice de vazao do SEFK.';
+  }
+  if (els.expectedThroughputInput) els.expectedThroughputInput.value = String(sanitized);
+  if (els.expectedThroughputPreview) {
+    els.expectedThroughputPreview.textContent = `${formatNumber(sanitized)} entregas como meta do periodo selecionado`;
   }
 }
 
@@ -800,7 +824,7 @@ async function loadData(params = state.currentRequest, options = {}) {
   const query = new URLSearchParams();
   query.set('_', String(Date.now()));
   query.set('boardScope', state.boardScope);
-  query.set('latePenaltyPerDay', String(state.settings.latePenaltyPerDay));
+  query.set('expectedThroughput', String(state.settings.expectedThroughput));
   query.set('excludedTaskIdsByPerson', JSON.stringify(state.settings.excludedTaskIdsByPerson || {}));
   if (params.start && params.end) {
     query.set('start', params.start);
@@ -872,20 +896,16 @@ els.cardSelectionList.addEventListener('change', (event) => {
 
 els.includeAllCards.addEventListener('click', includeAllCards);
 
-els.latePenaltyRange.addEventListener('input', () => {
-  syncSettingsControls(els.latePenaltyRange.value);
-});
-
-els.latePenaltyInput.addEventListener('input', () => {
-  syncSettingsControls(els.latePenaltyInput.value);
+els.expectedThroughputInput.addEventListener('input', () => {
+  syncSettingsControls(els.expectedThroughputInput.value);
 });
 
 els.resetSettings.addEventListener('click', () => {
-  syncSettingsControls(DEFAULT_LATE_PENALTY_PER_DAY);
+  syncSettingsControls(DEFAULT_EXPECTED_THROUGHPUT);
 });
 
 els.saveSettings.addEventListener('click', () => {
-  state.settings.latePenaltyPerDay = sanitizeLatePenalty(els.latePenaltyInput.value);
+  state.settings.expectedThroughput = sanitizeExpectedThroughput(els.expectedThroughputInput.value);
   persistSettings();
   closeSettingsModal();
   loadData(state.currentRequest);
