@@ -116,16 +116,27 @@ select {
 }
 
 .settings-button {
-  width: 42px;
+  width: 100%;
+  min-height: 42px;
   height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   cursor: pointer;
-  display: grid;
-  place-items: center;
-  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.settings-button span {
+  font-size: 20px;
+}
+
+.settings-button strong {
+  font-size: 14px;
 }
 
 .settings-button:hover,
