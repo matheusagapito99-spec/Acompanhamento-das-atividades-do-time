@@ -109,8 +109,8 @@
           <article class="panel stage-panel">
             <div class="panel-header">
               <div>
-                <h3>Tarefas que mais pesam na produtividade</h3>
-                <p class="panel-note">Perda estimada por atraso, conforme o peso diario configurado.</p>
+                <h3>Tarefas que afetam a saude do fluxo</h3>
+                <p class="panel-note">Itens vencidos ou entregues fora do prazo que pressionam SLE e backlog.</p>
               </div>
             </div>
             <div id="productivityImpact"></div>
@@ -150,8 +150,8 @@
           <article class="panel stage-panel">
             <div class="panel-header">
               <div>
-                <h3>Tarefas que mais pesam para esta pessoa</h3>
-                <p class="panel-note">Perda estimada por atraso dentro do periodo selecionado.</p>
+                <h3>Tarefas que afetam o fluxo desta pessoa</h3>
+                <p class="panel-note">Itens vencidos ou entregues fora do prazo dentro do periodo selecionado.</p>
               </div>
             </div>
             <div id="individualImpact"></div>
@@ -214,24 +214,23 @@
           <button class="icon-button" id="closeSettings" type="button" aria-label="Fechar">&times;</button>
         </div>
         <div class="settings-tabs" role="tablist" aria-label="Configuracoes de produtividade">
-          <button class="settings-tab active" type="button" data-settings-tab="weights">Pesos</button>
+          <button class="settings-tab active" type="button" data-settings-tab="weights">Metas</button>
           <button class="settings-tab" type="button" data-settings-tab="cards">Cards usados</button>
         </div>
         <div class="settings-panel active" data-settings-panel="weights">
-          <p class="panel-note">
+          <p class="panel-note" id="settingsTargetNote">
             Esse peso mede a pressão de atraso usada nos componentes de controle de atraso e backlog vencido.
           </p>
           <label class="settings-field">
-            Pontos perdidos por dia atrasado
-            <input type="range" id="latePenaltyRange" min="0" max="2" step="0.05">
+            Meta de entregas no periodo
+            <input type="number" id="expectedThroughputInput" min="1" max="999" step="1" aria-label="Meta de entregas no periodo">
           </label>
           <div class="settings-row">
-            <input type="number" id="latePenaltyInput" min="0" max="2" step="0.05" aria-label="Pontos por dia atrasado">
-            <span id="latePenaltyPreview"></span>
+            <span id="expectedThroughputPreview"></span>
           </div>
           <div class="modal-actions">
             <button class="ghost-button" id="resetSettings" type="button">Padrao</button>
-            <button class="primary-button" id="saveSettings" type="button">Salvar pesos</button>
+            <button class="primary-button" id="saveSettings" type="button">Salvar metas</button>
           </div>
         </div>
         <div class="settings-panel hidden" data-settings-panel="cards">
