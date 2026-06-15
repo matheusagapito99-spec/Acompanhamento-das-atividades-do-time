@@ -324,6 +324,10 @@ function getTypeName(task) {
   return task.type_name || getNestedName(task.type) || task.task_type_name || 'Sem tipo';
 }
 
+function getTaskId(task) {
+  return task.id ?? task.task_id ?? task.taskId ?? '';
+}
+
 function isMarketingBoard(boardName) {
   return matchesAny(boardName, MARKETING_BOARD_ALIASES);
 }
@@ -475,6 +479,51 @@ function normalizeProductivitySettings(options = {}) {
   return {
     latePenaltyPerDay: roundDecimal(latePenaltyPerDay, 2),
   };
+}
+
+function normalizeIdList(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(values
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+}
+
+function normalizeExcludedTaskIdsByPerson(options = {}, collaborators = []) {
+  let raw = options.excludedTaskIdsByPerson
+    ?? options.excludedCardsByPerson
+    ?? {};
+
+  if (typeof raw === 'string') {
+    try {
+      raw = raw ? JSON.parse(raw) : {};
+    } catch (error) {
+      raw = {};
+    }
+  }
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+
+  return Object.entries(raw).reduce((acc, [personName, ids]) => {
+    const collaborator = collaborators.find((name) => matchesConfiguredName(personName, name)) || personName;
+    const normalizedIds = normalizeIdList(ids);
+    if (normalizedIds.length) acc[collaborator] = normalizedIds;
+    return acc;
+  }, {});
+}
+
+function getExcludedIdsForPerson(personName, excludedTaskIdsByPerson = {}) {
+  const match = Object.entries(excludedTaskIdsByPerson).find(([configuredName]) => {
+    return matchesConfiguredName(personName, configuredName);
+  });
+  return new Set(match ? match[1] : []);
+}
+
+function isTaskExcludedFromProductivity(task, collaborators = [], excludedTaskIdsByPerson = {}) {
+  const personName = findConfiguredName(task, collaborators) || getAssigneeName(task);
+  const taskId = String(getTaskId(task) ?? '').trim();
+  if (!personName || !taskId) return false;
+  return getExcludedIdsForPerson(personName, excludedTaskIdsByPerson).has(taskId);
 }
 
 function buildLateImpactFromFlags(flags, period, settingsInput = {}) {
@@ -875,6 +924,56 @@ function buildProductivityImpacts(audit = [], limit = PRODUCTIVITY_IMPACT_LIMIT)
     }));
 }
 
+function buildCardSelection(tasks, period, collaborators, excludedTaskIdsByPerson = {}, settingsInput = {}) {
+  const people = collaborators.map((name) => {
+    const cards = tasks
+      .filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name))
+      .map((task) => {
+        const flags = buildTaskFlags(task, period);
+        if (!flags.active && !flags.delivered) return null;
+        const taskId = getTaskId(task);
+        const lateImpact = buildLateImpactFromFlags(flags, period, settingsInput);
+        const included = !isTaskExcludedFromProductivity(task, collaborators, excludedTaskIdsByPerson);
+        return {
+          id: taskId,
+          title: task.title || task.name || 'Sem titulo',
+          collaborator: name,
+          assignee: getAssigneeName(task) || name,
+          board: getBoardName(task) || 'Sem quadro',
+          stage: getStageName(task) || 'Sem etapa',
+          dueDate: flags.dueDate ? flags.dueDate.toISOString() : null,
+          closeDate: flags.closeDate ? flags.closeDate.toISOString() : null,
+          included,
+          lostPoints: lateImpact.lostPoints,
+          reason: lateImpact.reason,
+          tags: auditTags(flags),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.included !== b.included) return Number(b.included) - Number(a.included);
+        const impactDiff = Number(b.lostPoints || 0) - Number(a.lostPoints || 0);
+        if (impactDiff) return impactDiff;
+        return String(a.title).localeCompare(String(b.title));
+      });
+
+    return {
+      name,
+      total: cards.length,
+      included: cards.filter((card) => card.included).length,
+      excluded: cards.filter((card) => !card.included).length,
+      cards,
+    };
+  });
+
+  return {
+    total: people.reduce((sum, person) => sum + person.total, 0),
+    included: people.reduce((sum, person) => sum + person.included, 0),
+    excluded: people.reduce((sum, person) => sum + person.excluded, 0),
+    people,
+  };
+}
+
 function buildAlerts(audit, summary) {
   const alerts = [];
 
@@ -952,13 +1051,18 @@ function buildAnalytics(rawTasks = [], options = {}) {
   const period = normalizePeriod(options);
   const boardScope = normalizeBoardScope(options.boardScope);
   const productivitySettings = normalizeProductivitySettings(options);
+  const excludedTaskIdsByPerson = normalizeExcludedTaskIdsByPerson(options, collaborators);
   const normalizedTasks = expandTaskAssignments(rawTasks);
   const scopedTasks = normalizedTasks.filter((task) => isScopedTask(task, { ...options, boardScope }));
-  const summary = summarizeTasks(scopedTasks, period, productivitySettings);
-  const audit = buildAudit(scopedTasks, period, collaborators, productivitySettings);
+  const productivityTasks = scopedTasks.filter((task) => {
+    return !isTaskExcludedFromProductivity(task, collaborators, excludedTaskIdsByPerson);
+  });
+  const cardSelection = buildCardSelection(scopedTasks, period, collaborators, excludedTaskIdsByPerson, productivitySettings);
+  const summary = summarizeTasks(productivityTasks, period, productivitySettings);
+  const audit = buildAudit(productivityTasks, period, collaborators, productivitySettings);
 
   const people = collaborators.map((name) => {
-    const personTasks = scopedTasks.filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name));
+    const personTasks = productivityTasks.filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name));
     const personSummary = summarizeTasks(personTasks, period, productivitySettings);
     const personAudit = buildAudit(personTasks, period, collaborators, productivitySettings);
     return {
@@ -981,6 +1085,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
       boards: options.boards || [],
       boardScope,
       boardScopeLabel: BOARD_SCOPE_LABELS[boardScope],
+      excludedTaskIdsByPerson,
       rules: {
         marketing: 'Allana, Bruna e Beatriz: todas as colunas de Demandas MKT / Demandas de Marketing.',
         bruno: 'Bruno: apenas Criacao nas etapas Filas de demandas, Fazendo Bruno, Aprovacao de texto ou arte e Entregue.',
@@ -989,13 +1094,15 @@ function buildAnalytics(rawTasks = [], options = {}) {
     rawTaskCount: rawTasks.length,
     normalizedTaskCount: normalizedTasks.length,
     scopedTaskCount: scopedTasks.length,
+    productivityTaskCount: productivityTasks.length,
     summary,
     people,
-    comparisons: [buildComparison(scopedTasks, period, productivitySettings)],
-    breakdowns: buildBreakdowns(scopedTasks, period),
-    stageFunnel: buildStageFunnel(scopedTasks, period),
+    comparisons: [buildComparison(productivityTasks, period, productivitySettings)],
+    breakdowns: buildBreakdowns(productivityTasks, period),
+    stageFunnel: buildStageFunnel(productivityTasks, period),
     productivitySettings,
     productivityImpacts: buildProductivityImpacts(audit),
+    cardSelection,
     alerts: buildAlerts(audit, summary),
     audit,
   };
