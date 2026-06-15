@@ -4,6 +4,8 @@ const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const CURRENT_DEADLINE_BASIS = 'current_deadline';
 const DEFAULT_LATE_PENALTY_PER_DAY = 0.2;
 const MAX_LATE_PENALTY_PER_DAY = 5;
+const DEFAULT_EXPECTED_THROUGHPUT = 20;
+const MAX_EXPECTED_THROUGHPUT = 999;
 const PRODUCTIVITY_IMPACT_LIMIT = 8;
 
 const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de MKT', 'Demandas de Marketing'];
@@ -475,9 +477,14 @@ function normalizeProductivitySettings(options = {}) {
     ?? options.lateDailyPenalty
     ?? DEFAULT_LATE_PENALTY_PER_DAY;
   const latePenaltyPerDay = clampNumber(Number(rawValue), 0, MAX_LATE_PENALTY_PER_DAY);
+  const rawExpectedThroughput = options.expectedThroughput
+    ?? options.throughputTarget
+    ?? DEFAULT_EXPECTED_THROUGHPUT;
+  const expectedThroughput = clampNumber(Number(rawExpectedThroughput), 1, MAX_EXPECTED_THROUGHPUT);
 
   return {
     latePenaltyPerDay: roundDecimal(latePenaltyPerDay, 2),
+    expectedThroughput: roundDecimal(expectedThroughput, 1),
   };
 }
 
@@ -575,26 +582,15 @@ function averageLateDays(summary) {
 }
 
 function scoreBreakdown(summary) {
-  const delivery = summary.active ? summary.delivered / summary.active : 0;
-  const onTime = summary.deliveredWithDeadline ? summary.onTime / summary.deliveredWithDeadline : (summary.delivered ? 0.75 : 0);
-  const deadlineReliability = summary.deliveredWithDeadline
-    ? 1 - (summary.late / summary.deliveredWithDeadline)
-    : (summary.delivered ? 0.75 : 0);
-  const agingLimitDays = 30;
-  const agingScore = 1 - Math.min(averageLateDays(summary), agingLimitDays) / agingLimitDays;
-  const hasLatePressure = Boolean(summary.late || summary.overdueOpen);
-  const delayControl = hasLatePressure
-    ? (deadlineReliability * 0.6) + (agingScore * 0.4)
-    : deadlineReliability;
-  const backlogHealth = summary.open ? 1 - (summary.overdueOpen / summary.open) : 1;
-  const hourEfficiency = hourEfficiencyScore(summary);
+  const expectedThroughput = Number(summary.productivitySettings?.expectedThroughput || DEFAULT_EXPECTED_THROUGHPUT);
+  const throughput = expectedThroughput ? ratioScore(summary.delivered / expectedThroughput) : 0;
+  const sle = summary.deliveredWithDeadline ? ratioScore(summary.onTime / summary.deliveredWithDeadline) : 0;
+  const flowHealth = summary.open ? ratioScore(1 - (summary.overdueOpen / summary.open)) : 1;
 
   return {
-    delivery: { label: 'Entregas realizadas', value: roundPercent(delivery * 100), weight: 25 },
-    onTime: { label: 'Entregas no prazo', value: roundPercent(onTime * 100), weight: 30 },
-    delayControl: { label: 'Controle de atrasos', value: roundPercent(delayControl * 100), weight: 15 },
-    backlogHealth: { label: 'Backlog vencido', value: roundPercent(backlogHealth * 100), weight: 20 },
-    hourEfficiency: { label: 'Eficiencia de horas', value: roundPercent(hourEfficiency * 100), weight: 10 },
+    throughput: { label: 'Indice de Vazao', value: roundPercent(throughput * 100), weight: 40 },
+    sle: { label: 'Indice de Previsibilidade / SLE', value: roundPercent(sle * 100), weight: 40 },
+    flowHealth: { label: 'Indice de Saude do Fluxo', value: roundPercent(flowHealth * 100), weight: 20 },
   };
 }
 
@@ -661,7 +657,7 @@ function summarizeTasks(tasks = [], period, settingsInput = {}) {
     latePenaltyPoints: 0,
     averageLateDays: 0,
     productivityScore: 0,
-    productivityMethodology: 'Kanban flow score: throughput, service level expectation, WIP aging, backlog health and effort efficiency.',
+    productivityMethodology: 'SEFK: Score de Eficiencia de Fluxo Kanban baseado em vazao esperada, SLE e saude do fluxo.',
     productivitySettings,
     dueDateBasis: CURRENT_DEADLINE_BASIS,
   };
@@ -976,6 +972,7 @@ function buildCardSelection(tasks, period, collaborators, excludedTaskIdsByPerso
           dueDate: flags.dueDate ? flags.dueDate.toISOString() : null,
           closeDate: flags.closeDate ? flags.closeDate.toISOString() : null,
           included,
+          lateDays: lateImpact.lateDays,
           lostPoints: lateImpact.lostPoints,
           reason: lateImpact.reason,
           tags: auditTags(flags),
