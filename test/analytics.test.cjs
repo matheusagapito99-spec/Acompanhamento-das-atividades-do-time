@@ -231,6 +231,28 @@ test('buildAnalytics filters the calculation by selected board scope', () => {
   assert.deepEqual(creationAnalytics.audit.map((row) => row.title), ['Campanha atrasada']);
 });
 
+test('buildAnalytics lets managers exclude individual cards from productivity calculations', () => {
+  const analytics = buildAnalytics(tasks, {
+    ...config,
+    start: '2026-06-01',
+    end: '2026-06-08',
+    excludedTaskIdsByPerson: {
+      Allana: [1],
+    },
+  });
+
+  const allana = analytics.people.find((person) => person.name === 'Allana');
+  const bruno = analytics.people.find((person) => person.name === 'Bruno');
+  const allanaSelection = analytics.cardSelection.people.find((person) => person.name === 'Allana');
+
+  assert.equal(allana.summary.delivered, 0);
+  assert.equal(bruno.summary.delivered, 1);
+  assert.equal(analytics.summary.delivered, 2);
+  assert.equal(analytics.audit.some((row) => row.id === 1), false);
+  assert.equal(allanaSelection.cards.find((card) => card.id === 1).included, false);
+  assert.equal(analytics.scope.excludedTaskIdsByPerson.Allana[0], '1');
+});
+
 test('progressive late weight makes long delays cost more productivity points than short delays', () => {
   const analytics = buildAnalytics([
     {
