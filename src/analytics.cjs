@@ -2,9 +2,17 @@ const DAY_SECONDS = 86400;
 const DAY_MS = DAY_SECONDS * 1000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const CURRENT_DEADLINE_BASIS = 'current_deadline';
+const DEFAULT_LATE_PENALTY_PER_DAY = 0.2;
+const MAX_LATE_PENALTY_PER_DAY = 5;
+const PRODUCTIVITY_IMPACT_LIMIT = 8;
 
 const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de MKT', 'Demandas de Marketing'];
 const CREATION_BOARD_ALIASES = ['Criacao', 'Criação'];
+const BOARD_SCOPE_LABELS = {
+  all: 'Todos',
+  marketing: 'Demandas MKT',
+  creation: 'Criacao',
+};
 const BRUNO_STAGE_ALIASES = [
   'Filas de demandas',
   'Fazendo Bruno',
@@ -324,6 +332,23 @@ function isCreationBoard(boardName) {
   return matchesAny(boardName, CREATION_BOARD_ALIASES);
 }
 
+function normalizeBoardScope(value) {
+  const normalized = normalizeName(value || 'all');
+  if (!normalized || normalized === 'all' || normalized === 'todos') return 'all';
+  if (normalized.includes('mkt') || normalized.includes('marketing')) return 'marketing';
+  if (normalized.includes('criacao') || normalized.includes('creation')) return 'creation';
+  return 'all';
+}
+
+function taskMatchesBoardScope(task, boardScope) {
+  const scope = normalizeBoardScope(boardScope);
+  if (scope === 'all') return true;
+  const boardName = getBoardName(task);
+  if (scope === 'marketing') return isMarketingBoard(boardName);
+  if (scope === 'creation') return isCreationBoard(boardName);
+  return true;
+}
+
 function isScopedTask(task, options = {}) {
   const collaborators = options.collaborators || [];
   const collaborator = findConfiguredName(task, collaborators);
@@ -332,6 +357,9 @@ function isScopedTask(task, options = {}) {
   const boardName = getBoardName(task);
   const stageName = getStageName(task);
   const collaboratorKey = compactName(collaborator);
+  const boardScope = normalizeBoardScope(options.boardScope);
+
+  if (!taskMatchesBoardScope(task, boardScope)) return false;
 
   if (matchesConfiguredName(collaboratorKey, 'Bruno')) {
     return isCreationBoard(boardName) && matchesAny(stageName, BRUNO_STAGE_ALIASES);
@@ -427,6 +455,54 @@ function roundPercent(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function roundDecimal(value, digits = 1) {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeProductivitySettings(options = {}) {
+  const rawValue = options.latePenaltyPerDay
+    ?? options.lateDailyPenalty
+    ?? DEFAULT_LATE_PENALTY_PER_DAY;
+  const latePenaltyPerDay = clampNumber(Number(rawValue), 0, MAX_LATE_PENALTY_PER_DAY);
+
+  return {
+    latePenaltyPerDay: roundDecimal(latePenaltyPerDay, 2),
+  };
+}
+
+function buildLateImpactFromFlags(flags, period, settingsInput = {}) {
+  const settings = normalizeProductivitySettings(settingsInput);
+  const comparisonDate = flags.late
+    ? flags.closeDate
+    : (flags.overdueOpen ? period.end : null);
+  if (!flags.dueDate || !comparisonDate) {
+    return {
+      lateSeconds: 0,
+      lateDays: 0,
+      lostPoints: 0,
+      reason: '',
+    };
+  }
+
+  const lateSeconds = Math.max(0, Math.round((comparisonDate.getTime() - flags.dueDate.getTime()) / 1000));
+  const lateDays = lateSeconds / DAY_SECONDS;
+  const lostPoints = lateDays * settings.latePenaltyPerDay;
+
+  return {
+    lateSeconds,
+    lateDays: roundDecimal(lateDays, 2),
+    lostPoints: roundDecimal(lostPoints, 2),
+    reason: flags.overdueOpen ? 'Aberta vencida' : 'Entrega atrasada',
+  };
+}
+
 function scoreBreakdown(summary) {
   const delivery = summary.active ? summary.delivered / summary.active : 0;
   const onTime = summary.deliveredWithDeadline ? summary.onTime / summary.deliveredWithDeadline : (summary.delivered ? 0.75 : 0);
@@ -443,12 +519,18 @@ function scoreBreakdown(summary) {
   };
 }
 
-function scorePerson(summary) {
+function scoreBasePerson(summary) {
   const breakdown = scoreBreakdown(summary);
   const weighted = Object.values(breakdown).reduce((sum, item) => {
     return sum + (item.value * item.weight);
   }, 0);
   return roundPercent(weighted / 100);
+}
+
+function scorePerson(summary) {
+  const baseScore = Number(summary.productivityBaseScore ?? scoreBasePerson(summary));
+  const penalty = Number(summary.latePenaltyPoints || 0);
+  return roundPercent(baseScore - penalty);
 }
 
 function averageDailyWip(tasks, period) {
@@ -469,7 +551,8 @@ function averageDailyWip(tasks, period) {
   return Math.round((total / Math.max(totalDays, 1)) * 10) / 10;
 }
 
-function summarizeTasks(tasks = [], period) {
+function summarizeTasks(tasks = [], period, settingsInput = {}) {
+  const productivitySettings = normalizeProductivitySettings(settingsInput);
   const summary = {
     opened: 0,
     openedCreatedInPeriod: 0,
@@ -496,7 +579,10 @@ function summarizeTasks(tasks = [], period) {
     averageDailyWip: 0,
     cycleTimeDays: 0,
     flowEfficiency: 0,
+    productivityBaseScore: 0,
+    latePenaltyPoints: 0,
     productivityScore: 0,
+    productivitySettings,
     dueDateBasis: CURRENT_DEADLINE_BASIS,
   };
 
@@ -524,6 +610,9 @@ function summarizeTasks(tasks = [], period) {
     if (flags.overdueOpen) summary.overdueOpen += 1;
     if (flags.atRisk) summary.atRisk += 1;
 
+    const lateImpact = buildLateImpactFromFlags(flags, period, productivitySettings);
+    summary.latePenaltyPoints += lateImpact.lostPoints;
+
     if (flags.active) {
       summary.workedSeconds += getWorkedSeconds(task);
       summary.estimatedSeconds += getEstimateSeconds(task);
@@ -545,7 +634,9 @@ function summarizeTasks(tasks = [], period) {
   const dailyThroughput = summary.throughput / Math.max(periodDays, 1);
   summary.cycleTimeDays = dailyThroughput ? Math.round((summary.averageDailyWip / dailyThroughput) * 10) / 10 : 0;
   summary.flowEfficiency = executionSeconds ? roundPercent((summary.deliveredWorkedSeconds / executionSeconds) * 100) : 0;
+  summary.latePenaltyPoints = roundDecimal(summary.latePenaltyPoints, 2);
   summary.productivityBreakdown = scoreBreakdown(summary);
+  summary.productivityBaseScore = scoreBasePerson(summary);
   summary.productivityScore = scorePerson(summary);
 
   return summary;
@@ -628,10 +719,10 @@ function buildMetricComparison(current, previous) {
   }, {});
 }
 
-function buildComparison(tasks, period) {
+function buildComparison(tasks, period, settingsInput = {}) {
   const previous = previousPeriod(period);
-  const currentSummary = summarizeTasks(tasks, period);
-  const previousSummary = summarizeTasks(tasks, previous);
+  const currentSummary = summarizeTasks(tasks, period, settingsInput);
+  const previousSummary = summarizeTasks(tasks, previous, settingsInput);
   return {
     label: previous.label,
     range: {
@@ -711,12 +802,14 @@ function auditTags(flags) {
   return [...new Set(tags)];
 }
 
-function buildAudit(tasks, period, collaborators) {
+function buildAudit(tasks, period, collaborators, settingsInput = {}) {
+  const productivitySettings = normalizeProductivitySettings(settingsInput);
   return tasks
     .map((task) => {
       const flags = buildTaskFlags(task, period);
       if (!flags.active && !flags.delivered) return null;
       const collaborator = findConfiguredName(task, collaborators) || getAssigneeName(task);
+      const lateImpact = buildLateImpactFromFlags(flags, period, productivitySettings);
       return {
         id: task.id ?? task.task_id ?? '',
         title: task.title || task.name || 'Sem titulo',
@@ -733,6 +826,10 @@ function buildAudit(tasks, period, collaborators) {
         dueDateBasis: flags.dueDateBasis,
         workedSeconds: getWorkedSeconds(task),
         estimateSeconds: getEstimateSeconds(task),
+        lateSeconds: lateImpact.lateSeconds,
+        lateDays: lateImpact.lateDays,
+        lostPoints: lateImpact.lostPoints,
+        impactReason: lateImpact.reason,
         tags: auditTags(flags),
         flags: {
           active: flags.active,
@@ -747,10 +844,35 @@ function buildAudit(tasks, period, collaborators) {
     })
     .filter(Boolean)
     .sort((a, b) => {
+      const impactDiff = Number(b.lostPoints || 0) - Number(a.lostPoints || 0);
+      if (impactDiff) return impactDiff;
       const aPriority = Number(a.flags.overdueOpen) * 4 + Number(a.flags.late) * 3 + Number(a.flags.noDeadline);
       const bPriority = Number(b.flags.overdueOpen) * 4 + Number(b.flags.late) * 3 + Number(b.flags.noDeadline);
       return bPriority - aPriority || String(a.title).localeCompare(String(b.title));
     });
+}
+
+function buildProductivityImpacts(audit = [], limit = PRODUCTIVITY_IMPACT_LIMIT) {
+  return [...audit]
+    .filter((row) => Number(row.lostPoints || 0) > 0)
+    .sort((a, b) => Number(b.lostPoints || 0) - Number(a.lostPoints || 0)
+      || Number(b.lateSeconds || 0) - Number(a.lateSeconds || 0)
+      || String(a.title).localeCompare(String(b.title)))
+    .slice(0, limit)
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      collaborator: row.collaborator,
+      assignee: row.assignee,
+      board: row.board,
+      stage: row.stage,
+      dueDate: row.dueDate,
+      closeDate: row.closeDate,
+      lateSeconds: row.lateSeconds,
+      lateDays: row.lateDays,
+      lostPoints: row.lostPoints,
+      reason: row.impactReason,
+    }));
 }
 
 function buildAlerts(audit, summary) {
@@ -828,20 +950,24 @@ function buildAlerts(audit, summary) {
 function buildAnalytics(rawTasks = [], options = {}) {
   const collaborators = options.collaborators || [];
   const period = normalizePeriod(options);
+  const boardScope = normalizeBoardScope(options.boardScope);
+  const productivitySettings = normalizeProductivitySettings(options);
   const normalizedTasks = expandTaskAssignments(rawTasks);
-  const scopedTasks = normalizedTasks.filter((task) => isScopedTask(task, options));
-  const summary = summarizeTasks(scopedTasks, period);
-  const audit = buildAudit(scopedTasks, period, collaborators);
+  const scopedTasks = normalizedTasks.filter((task) => isScopedTask(task, { ...options, boardScope }));
+  const summary = summarizeTasks(scopedTasks, period, productivitySettings);
+  const audit = buildAudit(scopedTasks, period, collaborators, productivitySettings);
 
   const people = collaborators.map((name) => {
     const personTasks = scopedTasks.filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name));
-    const personSummary = summarizeTasks(personTasks, period);
+    const personSummary = summarizeTasks(personTasks, period, productivitySettings);
+    const personAudit = buildAudit(personTasks, period, collaborators, productivitySettings);
     return {
       name,
       summary: personSummary,
-      comparison: buildComparison(personTasks, period),
+      comparison: buildComparison(personTasks, period, productivitySettings),
       breakdowns: buildBreakdowns(personTasks, period),
       stageFunnel: buildStageFunnel(personTasks, period),
+      productivityImpacts: buildProductivityImpacts(personAudit),
     };
   });
 
@@ -853,6 +979,8 @@ function buildAnalytics(rawTasks = [], options = {}) {
     scope: {
       collaborators,
       boards: options.boards || [],
+      boardScope,
+      boardScopeLabel: BOARD_SCOPE_LABELS[boardScope],
       rules: {
         marketing: 'Allana, Bruna e Beatriz: todas as colunas de Demandas MKT / Demandas de Marketing.',
         bruno: 'Bruno: apenas Criacao nas etapas Filas de demandas, Fazendo Bruno, Aprovacao de texto ou arte e Entregue.',
@@ -863,9 +991,11 @@ function buildAnalytics(rawTasks = [], options = {}) {
     scopedTaskCount: scopedTasks.length,
     summary,
     people,
-    comparisons: [buildComparison(scopedTasks, period)],
+    comparisons: [buildComparison(scopedTasks, period, productivitySettings)],
     breakdowns: buildBreakdowns(scopedTasks, period),
     stageFunnel: buildStageFunnel(scopedTasks, period),
+    productivitySettings,
+    productivityImpacts: buildProductivityImpacts(audit),
     alerts: buildAlerts(audit, summary),
     audit,
   };
@@ -879,6 +1009,7 @@ module.exports = {
   matchesConfiguredName,
   matchesConfiguredText,
   normalizeName,
+  normalizeBoardScope,
   scorePerson,
   summarizeTasks,
 };
