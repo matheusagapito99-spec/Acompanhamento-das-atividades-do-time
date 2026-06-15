@@ -79,6 +79,15 @@ test('layout exposes board filter, settings modal, and productivity impact panel
   assert.equal(html.includes('id="individualImpact"'), true);
 });
 
+test('settings modal exposes card selection controls for individual productivity', () => {
+  const html = fs.readFileSync('index.html', 'utf8');
+
+  assert.equal(html.includes('data-settings-tab="cards"'), true);
+  assert.equal(html.includes('id="cardSelectionList"'), true);
+  assert.equal(html.includes('id="includeAllCards"'), true);
+  assert.match(html, /Cards usados/);
+});
+
 test('productivity help explains base score and progressive late penalty', () => {
   const context = loadAppContext();
   const help = context.productivityHelp({
