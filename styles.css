@@ -1017,7 +1017,7 @@ th {
   gap: 10px;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
