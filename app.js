@@ -1,14 +1,8 @@
-const DEFAULT_EXPECTED_THROUGHPUT = 20;
+const DEFAULT_REPORT_FROM = 'm.agapito@avalyst.com.br';
 const STORAGE_KEYS = {
   boardScope: 'runrunit-dashboard-board-scope',
   productivitySettings: 'runrunit-dashboard-productivity-settings',
 };
-
-function sanitizeExpectedThroughput(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return DEFAULT_EXPECTED_THROUGHPUT;
-  return Math.max(1, Math.min(999, Math.round(number)));
-}
 
 function sanitizeExcludedTaskIdsByPerson(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -20,6 +14,11 @@ function sanitizeExcludedTaskIdsByPerson(value = {}) {
     if (person && uniqueIds.length) acc[person] = uniqueIds;
     return acc;
   }, {});
+}
+
+function sanitizeEmail(value) {
+  const email = String(value || '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
 }
 
 function readStoredBoardScope() {
@@ -36,13 +35,17 @@ function readStoredSettings() {
     const raw = window.localStorage?.getItem(STORAGE_KEYS.productivitySettings);
     const parsed = raw ? JSON.parse(raw) : {};
     return {
-      expectedThroughput: sanitizeExpectedThroughput(parsed.expectedThroughput),
       excludedTaskIdsByPerson: sanitizeExcludedTaskIdsByPerson(parsed.excludedTaskIdsByPerson),
+      reportFrom: sanitizeEmail(parsed.reportFrom) || DEFAULT_REPORT_FROM,
+      testReportRecipient: sanitizeEmail(parsed.testReportRecipient),
+      testReportPerson: parsed.testReportPerson || '',
     };
   } catch (error) {
     return {
-      expectedThroughput: DEFAULT_EXPECTED_THROUGHPUT,
       excludedTaskIdsByPerson: {},
+      reportFrom: DEFAULT_REPORT_FROM,
+      testReportRecipient: '',
+      testReportPerson: '',
     };
   }
 }
@@ -53,12 +56,13 @@ const state = {
   boardScope: readStoredBoardScope(),
   settings: readStoredSettings(),
   selectedPerson: 'Allana',
+  reportConfig: null,
   currentRequest: { preset: 'this-week' },
   loading: false,
   refreshTimer: null,
   nextRefreshAt: null,
   activeTab: 'overview',
-  settingsTab: 'weights',
+  settingsTab: 'cards',
 };
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -89,12 +93,14 @@ const els = {
   settingsButton: document.getElementById('settingsButton'),
   settingsModal: document.getElementById('settingsModal'),
   closeSettings: document.getElementById('closeSettings'),
-  settingsTargetNote: document.getElementById('settingsTargetNote'),
-  expectedThroughputInput: document.getElementById('expectedThroughputInput'),
-  expectedThroughputPreview: document.getElementById('expectedThroughputPreview'),
   cardSelectionSummary: document.getElementById('cardSelectionSummary'),
   cardSelectionList: document.getElementById('cardSelectionList'),
   includeAllCards: document.getElementById('includeAllCards'),
+  reportFrom: document.getElementById('reportFrom'),
+  testReportPerson: document.getElementById('testReportPerson'),
+  testReportRecipient: document.getElementById('testReportRecipient'),
+  sendTestReport: document.getElementById('sendTestReport'),
+  testReportStatus: document.getElementById('testReportStatus'),
   resetSettings: document.getElementById('resetSettings'),
   saveSettings: document.getElementById('saveSettings'),
 };
@@ -106,7 +112,7 @@ const METRICS = [
     type: 'percent',
     polarity: 'higher',
     tone: (summary) => (summary.productivityScore >= 70 ? 'positive' : summary.productivityScore >= 50 ? 'warning' : 'negative'),
-    detail: (summary) => `${formatNumber(summary.delivered)} entregas | meta ${formatNumber(summary.productivitySettings?.expectedThroughput || DEFAULT_EXPECTED_THROUGHPUT)}`,
+    detail: (summary) => `${formatNumber(summary.onTime)}/${formatNumber(summary.deliveredWithDeadline)} no prazo | ${formatNumber(summary.overdueOpen)} vencidas`,
     help: (summary) => productivityHelp(summary),
   },
   {
@@ -239,25 +245,18 @@ function formatPoints(value) {
 }
 
 function productivityHelp(summary = {}) {
-  {
-    const breakdown = summary.productivityBreakdown || {};
-    const parts = Object.values(breakdown).map((item) => {
-      return `${item.label}: ${formatPercent(item.value)} x ${formatNumber(item.weight)} pts`;
-    });
-    const expectedThroughput = summary.productivitySettings?.expectedThroughput
-      || state.settings.expectedThroughput
-      || DEFAULT_EXPECTED_THROUGHPUT;
-
-    return [
-      'Calculo da produtividade (SEFK):',
-      'Metodologia: Score de Eficiencia de Fluxo Kanban, combinando vazao esperada, previsibilidade/SLE e saude do fluxo.',
-      'Formula: (40% x Indice de Vazao) + (40% x Indice de Previsibilidade/SLE) + (20% x Indice de Saude do Fluxo).',
-      ...parts,
-      `Meta de vazao: ${formatNumber(expectedThroughput)} entregas no periodo`,
-      `Score final: ${formatPercent(summary.productivityScore)}`,
-      'Atrasos antigos aparecem no SLE e na saude do fluxo, sem subtracao diaria acumulada.',
-    ].join('\n');
-  }
+  const currentBreakdown = summary.productivityBreakdown || {};
+  const currentParts = Object.values(currentBreakdown).map((item) => {
+    return `${item.label}: ${formatPercent(item.value)} x ${formatNumber(item.weight)} pts`;
+  });
+  return [
+    'Calculo da produtividade (Confiabilidade de Prazo):',
+    'Formula: (60% x Confiabilidade de prazo) + (25% x Saude do backlog) + (15% x Severidade dos atrasos).',
+    ...currentParts,
+    `Atraso medio considerado: ${formatDecimal(summary.averageLateDays || 0, 1)} dias entre itens atrasados/vencidos`,
+    'A vazao segue como leitura de volume entregue, sem meta arbitraria no score.',
+    `Score final: ${formatPercent(summary.productivityScore)}`,
+  ].join('\n');
 
   const breakdown = summary.productivityBreakdown || {};
   const parts = Object.values(breakdown).map((item) => {
@@ -790,26 +789,106 @@ function setSettingsTab(tabName) {
   });
 }
 
-function syncSettingsControls(value = state.settings.expectedThroughput) {
-  const sanitized = sanitizeExpectedThroughput(value);
-  if (els.settingsTargetNote) {
-    els.settingsTargetNote.textContent = 'Informe a meta de entregas esperada para o periodo selecionado. Ela alimenta o indice de vazao do SEFK.';
+function setSelectOptions(select, values = [], selectedValue = '') {
+  if (!select) return;
+  const uniqueValues = [...new Set(values.filter(Boolean))];
+  select.innerHTML = uniqueValues.map((value) => {
+    const selected = value === selectedValue ? 'selected' : '';
+    return `<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(value)}</option>`;
+  }).join('');
+}
+
+function renderAutomationControls() {
+  const config = state.reportConfig || {};
+  const fromOptions = config.fromOptions?.length ? config.fromOptions : [DEFAULT_REPORT_FROM];
+  const collaborators = config.collaborators?.length
+    ? config.collaborators
+    : (state.data?.scope?.collaborators || ['Allana', 'Bruno', 'Bruna', 'Beatriz']);
+  const selectedFrom = state.settings.reportFrom || config.defaultFrom || DEFAULT_REPORT_FROM;
+  const selectedPerson = state.settings.testReportPerson || collaborators[0] || '';
+
+  setSelectOptions(els.reportFrom, fromOptions, selectedFrom);
+  setSelectOptions(els.testReportPerson, collaborators, selectedPerson);
+  if (els.testReportRecipient) {
+    els.testReportRecipient.value = state.settings.testReportRecipient || '';
   }
-  if (els.expectedThroughputInput) els.expectedThroughputInput.value = String(sanitized);
-  if (els.expectedThroughputPreview) {
-    els.expectedThroughputPreview.textContent = `${formatNumber(sanitized)} entregas como meta do periodo selecionado`;
+}
+
+async function loadReportConfig() {
+  try {
+    const response = await fetch(`/api/report-config?_=${Date.now()}`);
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao carregar automacao.');
+    state.reportConfig = payload;
+    renderAutomationControls();
+  } catch (error) {
+    if (els.testReportStatus) {
+      els.testReportStatus.textContent = error.message;
+      els.testReportStatus.className = 'automation-status error';
+    }
   }
 }
 
 function openSettingsModal() {
-  syncSettingsControls();
+  renderAutomationControls();
   renderCardSelection();
-  setSettingsTab(state.settingsTab || 'weights');
+  loadReportConfig();
+  setSettingsTab(state.settingsTab || 'cards');
   els.settingsModal.classList.remove('hidden');
 }
 
 function closeSettingsModal() {
   els.settingsModal.classList.add('hidden');
+}
+
+async function sendTestReport() {
+  const from = els.reportFrom?.value || DEFAULT_REPORT_FROM;
+  const collaborator = els.testReportPerson?.value || state.selectedPerson;
+  const to = sanitizeEmail(els.testReportRecipient?.value);
+  state.settings.reportFrom = from;
+  state.settings.testReportPerson = collaborator;
+  state.settings.testReportRecipient = to;
+  persistSettings();
+
+  if (!to) {
+    if (els.testReportStatus) {
+      els.testReportStatus.textContent = 'Informe um destinatario valido para o teste.';
+      els.testReportStatus.className = 'automation-status error';
+    }
+    return;
+  }
+
+  if (els.sendTestReport) els.sendTestReport.disabled = true;
+  if (els.testReportStatus) {
+    els.testReportStatus.textContent = 'Enviando teste...';
+    els.testReportStatus.className = 'automation-status';
+  }
+
+  try {
+    const response = await fetch('/api/report-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to,
+        collaborator,
+        boardScope: state.boardScope,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao enviar teste.');
+    if (els.testReportStatus) {
+      els.testReportStatus.textContent = `Teste enviado para ${to}.`;
+      els.testReportStatus.className = 'automation-status success';
+    }
+  } catch (error) {
+    if (els.testReportStatus) {
+      els.testReportStatus.textContent = error.message;
+      els.testReportStatus.className = 'automation-status error';
+    }
+  } finally {
+    if (els.sendTestReport) els.sendTestReport.disabled = false;
+  }
 }
 
 async function loadData(params = state.currentRequest, options = {}) {
@@ -824,7 +903,6 @@ async function loadData(params = state.currentRequest, options = {}) {
   const query = new URLSearchParams();
   query.set('_', String(Date.now()));
   query.set('boardScope', state.boardScope);
-  query.set('expectedThroughput', String(state.settings.expectedThroughput));
   query.set('excludedTaskIdsByPerson', JSON.stringify(state.settings.excludedTaskIdsByPerson || {}));
   if (params.start && params.end) {
     query.set('start', params.start);
@@ -896,20 +974,30 @@ els.cardSelectionList.addEventListener('change', (event) => {
 
 els.includeAllCards.addEventListener('click', includeAllCards);
 
-els.expectedThroughputInput.addEventListener('input', () => {
-  syncSettingsControls(els.expectedThroughputInput.value);
-});
+if (els.reportFrom) {
+  els.reportFrom.addEventListener('change', () => {
+    state.settings.reportFrom = els.reportFrom.value || DEFAULT_REPORT_FROM;
+    persistSettings();
+  });
+}
 
-els.resetSettings.addEventListener('click', () => {
-  syncSettingsControls(DEFAULT_EXPECTED_THROUGHPUT);
-});
+if (els.testReportPerson) {
+  els.testReportPerson.addEventListener('change', () => {
+    state.settings.testReportPerson = els.testReportPerson.value;
+    persistSettings();
+  });
+}
 
-els.saveSettings.addEventListener('click', () => {
-  state.settings.expectedThroughput = sanitizeExpectedThroughput(els.expectedThroughputInput.value);
-  persistSettings();
-  closeSettingsModal();
-  loadData(state.currentRequest);
-});
+if (els.testReportRecipient) {
+  els.testReportRecipient.addEventListener('input', () => {
+    state.settings.testReportRecipient = sanitizeEmail(els.testReportRecipient.value);
+    persistSettings();
+  });
+}
+
+if (els.sendTestReport) {
+  els.sendTestReport.addEventListener('click', sendTestReport);
+}
 
 document.getElementById('applyCustom').addEventListener('click', () => {
   if (!els.startDate.value || !els.endDate.value) {
