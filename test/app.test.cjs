@@ -82,26 +82,30 @@ test('layout exposes board filter, settings modal, and productivity impact panel
 test('settings modal exposes card selection controls for individual productivity', () => {
   const html = fs.readFileSync('index.html', 'utf8');
 
+  assert.match(html, /Configurações/);
+  assert.equal(html.includes('aria-label="Abrir configurações"'), true);
   assert.equal(html.includes('data-settings-tab="cards"'), true);
   assert.equal(html.includes('id="cardSelectionList"'), true);
   assert.equal(html.includes('id="includeAllCards"'), true);
   assert.match(html, /Cards usados/);
 });
 
-test('productivity help explains base score and progressive late penalty', () => {
+test('productivity help explains the bounded Kanban flow score', () => {
   const context = loadAppContext();
   const help = context.productivityHelp({
     productivityBaseScore: 72,
-    productivityScore: 65,
+    productivityScore: 72,
     latePenaltyPoints: 7,
+    averageLateDays: 14,
     productivitySettings: { latePenaltyPerDay: 0.25 },
     productivityBreakdown: {
       delivery: { label: 'Entregas realizadas', value: 80, weight: 25 },
     },
   });
 
-  assert.match(help, /Score base: 72%/);
-  assert.match(help, /Penalidade progressiva/);
+  assert.match(help, /Kanban/);
+  assert.match(help, /Score final: 72%/);
+  assert.match(help, /não é subtraída diretamente/);
   assert.match(help, /0,25 ponto por dia/);
 });
 
