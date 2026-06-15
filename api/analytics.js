@@ -22,8 +22,6 @@ module.exports = async function handler(req, res) {
     const config = getDashboardConfig(process.env);
     const preset = req.query.preset || 'this-month';
     const boardScope = req.query.boardScope || 'all';
-    const latePenaltyPerDay = req.query.latePenaltyPerDay;
-    const expectedThroughput = req.query.expectedThroughput;
     const excludedTaskIdsByPerson = req.query.excludedTaskIdsByPerson;
     const range = req.query.start && req.query.end
       ? { start: req.query.start, end: req.query.end, label: 'Periodo personalizado' }
@@ -40,8 +38,6 @@ module.exports = async function handler(req, res) {
       end: range.end,
       cycle: preset,
       boardScope,
-      latePenaltyPerDay,
-      expectedThroughput,
       excludedTaskIdsByPerson,
       referenceDate: new Date().toISOString(),
     });
