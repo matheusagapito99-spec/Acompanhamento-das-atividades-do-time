@@ -106,7 +106,7 @@ const METRICS = [
     type: 'percent',
     polarity: 'higher',
     tone: (summary) => (summary.productivityScore >= 70 ? 'positive' : summary.productivityScore >= 50 ? 'warning' : 'negative'),
-    detail: (summary) => `${formatNumber(summary.delivered)} entregas | ${formatPoints(summary.latePenaltyPoints)} pts de pressão`,
+    detail: (summary) => `${formatNumber(summary.delivered)} entregas | ${formatPoints(summary.latePenaltyPoints)} de pressão`,
     help: (summary) => productivityHelp(summary),
   },
   {
@@ -253,7 +253,7 @@ function productivityHelp(summary = {}) {
     'Metodologia: score de fluxo Kanban com vazao, previsibilidade/SLE, aging de WIP, saude do backlog e eficiencia de horas.',
     ...parts,
     `Score ponderado: ${formatPercent(baseScore)}`,
-    `Pressão progressiva de atraso: ${formatPoints(penalty)} pts (${formatDecimal(averageLate, 1)} dias medios entre itens atrasados/vencidos)`,
+    `Pressão progressiva de atraso: ${formatPoints(penalty)} (${formatDecimal(averageLate, 1)} dias medios entre itens atrasados/vencidos)`,
     `Peso atual: ${formatDecimal(dailyWeight, 2)} ponto por dia de atraso`,
     'Essa pressão não é subtraída diretamente; ela reduz Controle de atrasos e Backlog vencido de forma limitada.',
     `Score final: ${formatPercent(summary.productivityScore)}`,
