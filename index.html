@@ -23,10 +23,15 @@
           <button class="nav-tab" data-tab="alerts">Alertas</button>
           <button class="nav-tab" data-tab="audit">Auditoria</button>
         </nav>
-        <div class="sidebar-note">
-          <span>Quadros</span>
-          <strong>Demandas MKT</strong>
-          <strong>Criacao</strong>
+        <div class="sidebar-footer">
+          <div class="sidebar-note">
+            <span>Quadros</span>
+            <strong>Demandas MKT</strong>
+            <strong>Criacao</strong>
+          </div>
+          <button class="settings-button" id="settingsButton" type="button" aria-label="Configurar pesos">
+            <span aria-hidden="true">&#9881;</span>
+          </button>
         </div>
       </aside>
 
@@ -43,6 +48,14 @@
         </header>
 
         <section class="filters" aria-label="Filtros de periodo">
+          <label class="board-filter">
+            Quadro
+            <select id="boardScope">
+              <option value="all">Todos</option>
+              <option value="marketing">Demandas MKT</option>
+              <option value="creation">Criacao</option>
+            </select>
+          </label>
           <div class="preset-group" role="group" aria-label="Periodos">
             <button class="preset active" data-preset="this-week">Semana</button>
             <button class="preset" data-preset="last-week">Semana anterior</button>
@@ -95,6 +108,15 @@
           <article class="panel stage-panel">
             <div class="panel-header">
               <div>
+                <h3>Tarefas que mais pesam na produtividade</h3>
+                <p class="panel-note">Perda estimada por atraso, conforme o peso diario configurado.</p>
+              </div>
+            </div>
+            <div id="productivityImpact"></div>
+          </article>
+          <article class="panel stage-panel">
+            <div class="panel-header">
+              <div>
                 <h3>Gargalos por etapa</h3>
                 <p class="panel-note">Distribuicao do tempo aproximado dos cards pela etapa atual.</p>
               </div>
@@ -124,6 +146,15 @@
             <select id="personSelect" aria-label="Selecionar colaborador"></select>
           </div>
           <div class="metric-grid" id="individualMetrics"></div>
+          <article class="panel stage-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Tarefas que mais pesam para esta pessoa</h3>
+                <p class="panel-note">Perda estimada por atraso dentro do periodo selecionado.</p>
+              </div>
+            </div>
+            <div id="individualImpact"></div>
+          </article>
           <div class="two-column">
             <article class="panel">
               <div class="panel-header"><h3>Distribuicao</h3></div>
@@ -170,6 +201,33 @@
           </div>
         </section>
       </main>
+    </div>
+
+    <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="settings-modal">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Configuracoes</p>
+            <h2 id="settingsTitle">Peso diario de atraso</h2>
+          </div>
+          <button class="icon-button" id="closeSettings" type="button" aria-label="Fechar">&times;</button>
+        </div>
+        <p class="panel-note">
+          Esse peso subtrai pontos da produtividade conforme os dias de atraso de cada tarefa.
+        </p>
+        <label class="settings-field">
+          Pontos perdidos por dia atrasado
+          <input type="range" id="latePenaltyRange" min="0" max="2" step="0.05">
+        </label>
+        <div class="settings-row">
+          <input type="number" id="latePenaltyInput" min="0" max="2" step="0.05" aria-label="Pontos por dia atrasado">
+          <span id="latePenaltyPreview"></span>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost-button" id="resetSettings" type="button">Padrao</button>
+          <button class="primary-button" id="saveSettings" type="button">Salvar</button>
+        </div>
+      </div>
     </div>
 
     <script src="/app.js"></script>
