@@ -202,6 +202,102 @@ test('buildAnalytics applies the marketing and Bruno board rules', () => {
   ]);
 });
 
+test('buildAnalytics filters the calculation by selected board scope', () => {
+  const analytics = buildAnalytics(tasks, {
+    ...config,
+    start: '2026-06-01',
+    end: '2026-06-08',
+    boardScope: 'marketing',
+  });
+
+  assert.equal(analytics.scope.boardScope, 'marketing');
+  assert.equal(analytics.summary.delivered, 2);
+  assert.equal(analytics.people.find((person) => person.name === 'Bruno').summary.active, 0);
+  assert.deepEqual(analytics.audit.map((row) => row.title).sort(), [
+    'Demanda sem prazo',
+    'Landing page',
+    'Post em andamento',
+  ]);
+
+  const creationAnalytics = buildAnalytics(tasks, {
+    ...config,
+    start: '2026-06-01',
+    end: '2026-06-08',
+    boardScope: 'creation',
+  });
+
+  assert.equal(creationAnalytics.scope.boardScope, 'creation');
+  assert.equal(creationAnalytics.summary.delivered, 1);
+  assert.deepEqual(creationAnalytics.audit.map((row) => row.title), ['Campanha atrasada']);
+});
+
+test('progressive late weight makes long delays cost more productivity points than short delays', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 50,
+      title: 'Atraso de uma hora',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      created_at: '2026-06-01T09:00:00-03:00',
+      close_date: '2026-06-02T19:00:00-03:00',
+      desired_date: '2026-06-02T18:00:00-03:00',
+      is_closed: true,
+    },
+    {
+      id: 51,
+      title: 'Atraso de trinta e cinco dias',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      created_at: '2026-05-01T09:00:00-03:00',
+      close_date: '2026-06-06T18:00:00-03:00',
+      desired_date: '2026-05-02T18:00:00-03:00',
+      is_closed: true,
+    },
+  ], {
+    collaborators: ['Allana'],
+    boards: ['Demandas MKT'],
+    start: '2026-06-01',
+    end: '2026-06-08',
+    latePenaltyPerDay: 0.5,
+  });
+
+  const [longDelay, shortDelay] = analytics.productivityImpacts;
+  assert.equal(longDelay.title, 'Atraso de trinta e cinco dias');
+  assert.equal(shortDelay.title, 'Atraso de uma hora');
+  assert.ok(longDelay.lostPoints > shortDelay.lostPoints);
+  assert.ok(analytics.summary.latePenaltyPoints >= longDelay.lostPoints);
+  assert.ok(analytics.summary.productivityScore < analytics.summary.productivityBaseScore);
+});
+
+test('open overdue tasks appear in productivity impact lists for the team and the person', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 60,
+      title: 'Demanda aberta muito vencida',
+      user_name: 'Bruna',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Em andamento',
+      created_at: '2026-05-01T09:00:00-03:00',
+      close_date: null,
+      desired_date: '2026-05-10T18:00:00-03:00',
+      is_closed: false,
+    },
+  ], {
+    collaborators: ['Bruna'],
+    boards: ['Demandas MKT'],
+    start: '2026-06-01',
+    end: '2026-06-08',
+    latePenaltyPerDay: 0.25,
+  });
+
+  assert.equal(analytics.productivityImpacts.length, 1);
+  assert.equal(analytics.productivityImpacts[0].title, 'Demanda aberta muito vencida');
+  assert.equal(analytics.people[0].productivityImpacts[0].title, 'Demanda aberta muito vencida');
+  assert.equal(analytics.audit[0].lostPoints, analytics.productivityImpacts[0].lostPoints);
+});
+
 test('buildAnalytics accepts the real Runrun.it Demandas de MKT board name', () => {
   const analytics = buildAnalytics([
     {
