@@ -10,6 +10,18 @@ function sanitizeLatePenalty(value) {
   return Math.max(0, Math.min(2, Math.round(number * 100) / 100));
 }
 
+function sanitizeExcludedTaskIdsByPerson(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.entries(value).reduce((acc, [person, ids]) => {
+    const cleanIds = (Array.isArray(ids) ? ids : String(ids || '').split(','))
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const uniqueIds = [...new Set(cleanIds)];
+    if (person && uniqueIds.length) acc[person] = uniqueIds;
+    return acc;
+  }, {});
+}
+
 function readStoredBoardScope() {
   try {
     const value = window.localStorage?.getItem(STORAGE_KEYS.boardScope);
@@ -25,10 +37,12 @@ function readStoredSettings() {
     const parsed = raw ? JSON.parse(raw) : {};
     return {
       latePenaltyPerDay: sanitizeLatePenalty(parsed.latePenaltyPerDay),
+      excludedTaskIdsByPerson: sanitizeExcludedTaskIdsByPerson(parsed.excludedTaskIdsByPerson),
     };
   } catch (error) {
     return {
       latePenaltyPerDay: DEFAULT_LATE_PENALTY_PER_DAY,
+      excludedTaskIdsByPerson: {},
     };
   }
 }
@@ -44,6 +58,7 @@ const state = {
   refreshTimer: null,
   nextRefreshAt: null,
   activeTab: 'overview',
+  settingsTab: 'weights',
 };
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -77,6 +92,9 @@ const els = {
   latePenaltyRange: document.getElementById('latePenaltyRange'),
   latePenaltyInput: document.getElementById('latePenaltyInput'),
   latePenaltyPreview: document.getElementById('latePenaltyPreview'),
+  cardSelectionSummary: document.getElementById('cardSelectionSummary'),
+  cardSelectionList: document.getElementById('cardSelectionList'),
+  includeAllCards: document.getElementById('includeAllCards'),
   resetSettings: document.getElementById('resetSettings'),
   saveSettings: document.getElementById('saveSettings'),
 };
@@ -404,6 +422,64 @@ function renderProductivityImpact() {
   els.productivityImpact.innerHTML = renderImpactList(state.data.productivityImpacts || []);
 }
 
+function isCardExcludedForPerson(personName, cardId) {
+  const exclusions = sanitizeExcludedTaskIdsByPerson(state.settings.excludedTaskIdsByPerson);
+  const ids = exclusions[personName] || [];
+  return ids.includes(String(cardId || '').trim());
+}
+
+function renderCardSelection() {
+  if (!els.cardSelectionList || !els.cardSelectionSummary) return;
+  const selection = state.data?.cardSelection;
+  if (!selection || !selection.people?.length) {
+    els.cardSelectionSummary.textContent = 'Sem cards carregados para este periodo.';
+    els.cardSelectionList.innerHTML = '<p class="empty">Atualize os dados para ver os cards usados no calculo.</p>';
+    return;
+  }
+
+  const people = selection.people.map((person) => {
+    const cards = person.cards.map((card) => ({
+      ...card,
+      included: !isCardExcludedForPerson(person.name, card.id),
+    }));
+    return {
+      ...person,
+      cards,
+      included: cards.filter((card) => card.included).length,
+      excluded: cards.filter((card) => !card.included).length,
+      total: cards.length,
+    };
+  });
+  const included = people.reduce((sum, person) => sum + person.included, 0);
+  const excluded = people.reduce((sum, person) => sum + person.excluded, 0);
+
+  els.cardSelectionSummary.textContent = `${formatNumber(included)} marcados | ${formatNumber(excluded)} desmarcados`;
+  els.cardSelectionList.innerHTML = people.map((person) => `
+    <section class="card-selection-person">
+      <div class="card-selection-person-head">
+        <strong>${escapeHtml(person.name)}</strong>
+        <span>${formatNumber(person.included)}/${formatNumber(person.total)} usados</span>
+      </div>
+      ${person.cards.length ? person.cards.map((card) => `
+        <label class="card-selection-row ${card.included ? '' : 'excluded'}">
+          <input
+            type="checkbox"
+            class="card-selection-toggle"
+            data-person="${escapeHtml(person.name)}"
+            data-card-id="${escapeHtml(card.id)}"
+            ${card.included ? 'checked' : ''}
+          >
+          <span class="card-selection-main">
+            <strong>#${escapeHtml(card.id || 'sem ID')} ${escapeHtml(card.title)}</strong>
+            <small>${escapeHtml(card.board)} | ${escapeHtml(card.stage)}</small>
+          </span>
+          <span class="card-selection-impact">-${formatPoints(card.lostPoints || 0)}</span>
+        </label>
+      `).join('') : '<p class="empty">Sem cards para esta pessoa no periodo.</p>'}
+    </section>
+  `).join('');
+}
+
 function renderPeople() {
   const people = state.data.people || [];
   els.peopleSummary.innerHTML = people.map((person) => {
@@ -557,10 +633,14 @@ function renderAll() {
     state.boardScope = data.scope?.boardScope || state.boardScope;
     els.boardScope.value = state.boardScope;
   }
+  if (data.scope?.excludedTaskIdsByPerson) {
+    state.settings.excludedTaskIdsByPerson = sanitizeExcludedTaskIdsByPerson(data.scope.excludedTaskIdsByPerson);
+  }
   renderMetrics(els.metricGrid, data.summary, comparison);
   renderPeople();
   els.boardBreakdown.innerHTML = renderBarHtml(data.breakdowns.boards);
   renderProductivityImpact();
+  renderCardSelection();
   renderStageFunnel();
   renderWorkload();
   renderIndividual();
@@ -641,6 +721,50 @@ function persistSettings() {
   }
 }
 
+function setCardIncluded(personName, cardId, included) {
+  const person = String(personName || '').trim();
+  const id = String(cardId || '').trim();
+  if (!person || !id) return;
+
+  const exclusions = sanitizeExcludedTaskIdsByPerson(state.settings.excludedTaskIdsByPerson);
+  const ids = new Set(exclusions[person] || []);
+  if (included) {
+    ids.delete(id);
+  } else {
+    ids.add(id);
+  }
+
+  if (ids.size) {
+    exclusions[person] = [...ids].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  } else {
+    delete exclusions[person];
+  }
+
+  state.settings.excludedTaskIdsByPerson = exclusions;
+  persistSettings();
+  renderCardSelection();
+  loadData(state.currentRequest);
+}
+
+function includeAllCards() {
+  state.settings.excludedTaskIdsByPerson = {};
+  persistSettings();
+  renderCardSelection();
+  loadData(state.currentRequest);
+}
+
+function setSettingsTab(tabName) {
+  state.settingsTab = tabName;
+  document.querySelectorAll('[data-settings-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.settingsTab === tabName);
+  });
+  document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+    const active = panel.dataset.settingsPanel === tabName;
+    panel.classList.toggle('active', active);
+    panel.classList.toggle('hidden', !active);
+  });
+}
+
 function syncSettingsControls(value = state.settings.latePenaltyPerDay) {
   const sanitized = sanitizeLatePenalty(value);
   if (els.latePenaltyRange) els.latePenaltyRange.value = String(sanitized);
@@ -652,6 +776,8 @@ function syncSettingsControls(value = state.settings.latePenaltyPerDay) {
 
 function openSettingsModal() {
   syncSettingsControls();
+  renderCardSelection();
+  setSettingsTab(state.settingsTab || 'weights');
   els.settingsModal.classList.remove('hidden');
 }
 
@@ -672,6 +798,7 @@ async function loadData(params = state.currentRequest, options = {}) {
   query.set('_', String(Date.now()));
   query.set('boardScope', state.boardScope);
   query.set('latePenaltyPerDay', String(state.settings.latePenaltyPerDay));
+  query.set('excludedTaskIdsByPerson', JSON.stringify(state.settings.excludedTaskIdsByPerson || {}));
   if (params.start && params.end) {
     query.set('start', params.start);
     query.set('end', params.end);
@@ -729,6 +856,18 @@ els.closeSettings.addEventListener('click', closeSettingsModal);
 els.settingsModal.addEventListener('click', (event) => {
   if (event.target === els.settingsModal) closeSettingsModal();
 });
+
+document.querySelectorAll('[data-settings-tab]').forEach((button) => {
+  button.addEventListener('click', () => setSettingsTab(button.dataset.settingsTab));
+});
+
+els.cardSelectionList.addEventListener('change', (event) => {
+  const checkbox = event.target.closest?.('.card-selection-toggle');
+  if (!checkbox) return;
+  setCardIncluded(checkbox.dataset.person, checkbox.dataset.cardId, checkbox.checked);
+});
+
+els.includeAllCards.addEventListener('click', includeAllCards);
 
 els.latePenaltyRange.addEventListener('input', () => {
   syncSettingsControls(els.latePenaltyRange.value);
