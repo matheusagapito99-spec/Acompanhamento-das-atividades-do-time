@@ -290,7 +290,45 @@ test('progressive late weight makes long delays cost more productivity points th
   assert.equal(shortDelay.title, 'Atraso de uma hora');
   assert.ok(longDelay.lostPoints > shortDelay.lostPoints);
   assert.ok(analytics.summary.latePenaltyPoints >= longDelay.lostPoints);
-  assert.ok(analytics.summary.productivityScore < analytics.summary.productivityBaseScore);
+  assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
+  assert.ok(analytics.summary.productivityBreakdown.delayControl.value < 100);
+});
+
+test('productivity score is a bounded Kanban flow score instead of an unbounded late subtraction', () => {
+  const score = scorePerson({
+    productivityBaseScore: 32,
+    latePenaltyPoints: 145.86,
+  });
+
+  assert.equal(score, 32);
+
+  const analytics = buildAnalytics([
+    {
+      id: 70,
+      title: 'Entrega feita com atraso longo',
+      user_name: 'Allana',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      created_at: '2025-01-01T09:00:00-03:00',
+      close_date: '2026-06-05T18:00:00-03:00',
+      desired_date: '2025-01-05T18:00:00-03:00',
+      is_closed: true,
+      current_estimate_seconds: 7200,
+      time_worked: 3600,
+    },
+  ], {
+    collaborators: ['Allana'],
+    boards: ['Demandas MKT'],
+    start: '2026-06-01',
+    end: '2026-06-08',
+    latePenaltyPerDay: 0.2,
+  });
+
+  assert.equal(analytics.summary.delivered, 1);
+  assert.ok(analytics.summary.latePenaltyPoints > analytics.summary.productivityBaseScore);
+  assert.ok(analytics.summary.productivityScore > 0);
+  assert.equal(analytics.summary.productivityScore, analytics.summary.productivityBaseScore);
+  assert.match(analytics.summary.productivityMethodology, /Kanban/);
 });
 
 test('open overdue tasks appear in productivity impact lists for the team and the person', () => {
