@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "crons": [
+    {
+      "path": "/api/cron/weekly-report",
+      "schedule": "0 11 * * 1"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
