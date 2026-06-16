@@ -4,6 +4,7 @@ const {
   sanitizeApiError,
 } = require('../src/runrunit.cjs');
 const {
+  getReportTemplate,
   getReportFromOptions,
   resolveCollaboratorRecipients,
 } = require('../src/reports.cjs');
@@ -31,6 +32,7 @@ module.exports = async function handler(req, res) {
       defaultFrom: getReportFromOptions(process.env)[0],
       collaborators: config.collaborators,
       recipients,
+      template: getReportTemplate(process.env),
     });
   } catch (error) {
     const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
