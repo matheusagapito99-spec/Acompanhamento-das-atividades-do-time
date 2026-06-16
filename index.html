@@ -261,6 +261,24 @@
             Destinatario do teste
             <input type="email" id="testReportRecipient" placeholder="email@avalyst.com.br" aria-label="Destinatario do envio teste">
           </label>
+          <div class="email-template-editor">
+            <div class="email-template-head">
+              <div>
+                <h3>Modelo do e-mail</h3>
+                <p class="panel-note">Use as variaveis abaixo para manter as metricas dinamicas no assunto e no corpo.</p>
+              </div>
+              <button class="ghost-button" id="resetReportTemplate" type="button">Restaurar modelo</button>
+            </div>
+            <label class="settings-field wide">
+              Assunto
+              <input type="text" id="reportSubjectTemplate" aria-label="Assunto do relatorio">
+            </label>
+            <label class="settings-field wide">
+              Corpo do e-mail
+              <textarea id="reportBodyTemplate" rows="12" aria-label="Corpo do relatorio"></textarea>
+            </label>
+            <div class="template-variable-list" id="templateVariableList" aria-label="Variaveis disponiveis"></div>
+          </div>
           <div class="modal-actions">
             <button class="primary-button" id="sendTestReport" type="button">Enviar teste</button>
           </div>
