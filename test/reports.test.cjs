@@ -3,9 +3,13 @@ const assert = require('node:assert/strict');
 
 const {
   DEFAULT_REPORT_FROM,
+  DEFAULT_REPORT_BODY_TEMPLATE,
+  DEFAULT_REPORT_SUBJECT_TEMPLATE,
   buildReportEmailHtml,
   buildReportPeriods,
+  getReportTemplate,
   getReportFromOptions,
+  renderTemplateText,
   resolveCollaboratorRecipients,
   sendEmailViaResend,
 } = require('../src/reports.cjs');
@@ -87,6 +91,55 @@ test('report email includes individual and department performance blocks', () =>
   assert.match(html, /Produtividade individual/);
   assert.match(html, /Produtividade do departamento/);
   assert.match(html, /Card atrasado/);
+});
+
+test('report templates expose editable subject and body variables', () => {
+  const template = getReportTemplate({
+    REPORT_SUBJECT_TEMPLATE: 'Fechamento {{colaborador}} - {{produtividade}}',
+    REPORT_BODY_TEMPLATE: 'Oi {{colaborador}}\nScore: {{produtividade}}\n{{blocoMetricas}}',
+  });
+
+  assert.equal(template.subjectTemplate, 'Fechamento {{colaborador}} - {{produtividade}}');
+  assert.equal(template.bodyTemplate, 'Oi {{colaborador}}\nScore: {{produtividade}}\n{{blocoMetricas}}');
+  assert.equal(template.variables.some((item) => item.key === 'departamentoProdutividade'), true);
+  assert.equal(DEFAULT_REPORT_SUBJECT_TEMPLATE.includes('{{periodo}}'), true);
+  assert.equal(DEFAULT_REPORT_BODY_TEMPLATE.includes('{{blocoMetricas}}'), true);
+});
+
+test('custom report templates render metric variables in subject and body', () => {
+  const html = buildReportEmailHtml({
+    collaborator: 'Bruno',
+    department: {
+      summary: {
+        productivityScore: 55,
+        delivered: 10,
+        onTimeRate: 40,
+        overdueOpen: 3,
+      },
+    },
+    person: {
+      summary: {
+        productivityScore: 62,
+        delivered: 3,
+        onTimeRate: 67,
+        overdueOpen: 1,
+      },
+      productivityImpacts: [],
+    },
+    period: { start: '2026-06-08', end: '2026-06-14' },
+    template: {
+      bodyTemplate: 'Resumo de {{colaborador}}: {{produtividade}}. Departamento: {{departamentoProdutividade}}.',
+    },
+  });
+
+  assert.match(html, /Resumo de Bruno: 62%/);
+  assert.match(html, /Departamento: 55%/);
+});
+
+test('renderTemplateText strips visual HTML-only variables from subject templates', () => {
+  const subject = renderTemplateText('Assunto {{colaborador}} {{blocoMetricas}}', { colaborador: 'Beatriz', blocoMetricas: '<table></table>' });
+
+  assert.equal(subject, 'Assunto Beatriz');
 });
 
 test('sendEmailViaResend posts the report with API key and selected sender', async () => {
