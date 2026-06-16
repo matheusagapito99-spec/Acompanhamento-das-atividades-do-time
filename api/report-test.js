@@ -28,6 +28,7 @@ module.exports = async function handler(req, res) {
       from: body.from,
       to: body.to,
       collaborator: body.collaborator,
+      template: body.template,
       env: process.env,
       boardScope: body.boardScope || 'all',
     });
