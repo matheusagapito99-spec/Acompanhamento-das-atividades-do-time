@@ -99,10 +99,16 @@ test('settings modal exposes automation controls and accordion card selection co
   assert.equal(html.includes('id="expectedThroughputInput"'), false);
   assert.equal(html.includes('id="reportFrom"'), true);
   assert.equal(html.includes('id="testReportRecipient"'), true);
+  assert.equal(html.includes('id="reportSubjectTemplate"'), true);
+  assert.equal(html.includes('id="reportBodyTemplate"'), true);
+  assert.equal(html.includes('id="templateVariableList"'), true);
+  assert.equal(html.includes('{{produtividade}}'), false);
   assert.equal(html.includes('id="sendTestReport"'), true);
   assert.equal(html.includes('m.agapito@avalyst.com.br'), true);
   assert.match(app, /<details class="card-selection-person"/);
+  assert.match(app, /REPORT_TEMPLATE_VARIABLES/);
   assert.match(styles, /\.sidebar\s*{[^}]*position:\s*sticky/s);
+  assert.match(styles, /\.email-template-editor/);
   assert.match(html, /Cards usados/);
 });
 
