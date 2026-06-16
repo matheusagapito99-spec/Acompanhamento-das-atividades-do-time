@@ -5,6 +5,41 @@ const DAY_MS = 86400000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const DEFAULT_REPORT_FROM = 'm.agapito@avalyst.com.br';
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+const DEFAULT_REPORT_SUBJECT_TEMPLATE = 'Relatorio de produtividade - {{colaborador}} - {{periodo}}{{complementoMensal}}';
+const DEFAULT_REPORT_BODY_TEMPLATE = `Ola, {{colaborador}}.
+
+Segue o fechamento de produtividade do periodo {{periodo}}.
+
+{{blocoMetricas}}
+
+Tarefas que mais afetam o fluxo:
+{{tarefasCriticas}}
+
+{{complementoMensalTexto}}`;
+const REPORT_TEMPLATE_VARIABLES = [
+  { key: 'colaborador', label: 'Nome do colaborador' },
+  { key: 'periodo', label: 'Periodo analisado' },
+  { key: 'periodoInicio', label: 'Inicio do periodo' },
+  { key: 'periodoFim', label: 'Fim do periodo' },
+  { key: 'produtividade', label: 'Produtividade individual' },
+  { key: 'entregues', label: 'Entregas individuais' },
+  { key: 'noPrazo', label: 'Percentual no prazo individual' },
+  { key: 'atrasadas', label: 'Entregas atrasadas individuais' },
+  { key: 'vencidas', label: 'Abertas vencidas individuais' },
+  { key: 'vazao', label: 'Vazao individual' },
+  { key: 'tempoMedio', label: 'Tempo medio individual' },
+  { key: 'tempoApontado', label: 'Tempo apontado individual' },
+  { key: 'departamentoProdutividade', label: 'Produtividade do departamento' },
+  { key: 'departamentoEntregues', label: 'Entregas do departamento' },
+  { key: 'departamentoNoPrazo', label: 'Percentual no prazo do departamento' },
+  { key: 'departamentoAtrasadas', label: 'Atrasadas do departamento' },
+  { key: 'departamentoVencidas', label: 'Abertas vencidas do departamento' },
+  { key: 'departamentoVazao', label: 'Vazao do departamento' },
+  { key: 'blocoMetricas', label: 'Bloco visual de metricas' },
+  { key: 'tarefasCriticas', label: 'Lista de tarefas criticas' },
+  { key: 'complementoMensal', label: 'Sufixo do assunto quando houver mes fechado' },
+  { key: 'complementoMensalTexto', label: 'Bloco mensal no corpo' },
+];
 
 const dateKeyFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: BRAZIL_TIME_ZONE,
@@ -129,6 +164,25 @@ function getReportFromOptions(env = process.env) {
   ]);
 }
 
+function normalizeTemplateText(value, fallback) {
+  const text = String(value || '').trim();
+  return text || fallback;
+}
+
+function getReportTemplate(env = process.env, template = {}) {
+  return {
+    subjectTemplate: normalizeTemplateText(
+      template.subjectTemplate || env.REPORT_SUBJECT_TEMPLATE,
+      DEFAULT_REPORT_SUBJECT_TEMPLATE,
+    ),
+    bodyTemplate: normalizeTemplateText(
+      template.bodyTemplate || env.REPORT_BODY_TEMPLATE,
+      DEFAULT_REPORT_BODY_TEMPLATE,
+    ),
+    variables: REPORT_TEMPLATE_VARIABLES,
+  };
+}
+
 function resolveCollaboratorRecipients(users = [], collaborators = []) {
   const recipients = [];
   for (const collaborator of collaborators) {
@@ -172,6 +226,30 @@ function metricBlock(label, value, detail = '') {
   `;
 }
 
+function metricTableHtml(personSummary = {}, departmentSummary = {}, comparisonScore) {
+  return `
+    <h2 style="font-size:18px;margin:20px 0 8px;">Produtividade individual</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
+      <tr>
+        ${metricBlock('Produtividade', formatPercent(personSummary.productivityScore), comparisonScore === undefined ? '' : `Periodo anterior: ${formatPercent(comparisonScore)}`)}
+        ${metricBlock('Entregues', formatNumber(personSummary.delivered))}
+        ${metricBlock('No prazo', formatPercent(personSummary.onTimeRate))}
+        ${metricBlock('Abertas vencidas', formatNumber(personSummary.overdueOpen))}
+      </tr>
+    </table>
+
+    <h2 style="font-size:18px;margin:28px 0 8px;">Produtividade do departamento</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
+      <tr>
+        ${metricBlock('Departamento', formatPercent(departmentSummary.productivityScore))}
+        ${metricBlock('Entregues', formatNumber(departmentSummary.delivered))}
+        ${metricBlock('No prazo', formatPercent(departmentSummary.onTimeRate))}
+        ${metricBlock('Abertas vencidas', formatNumber(departmentSummary.overdueOpen))}
+      </tr>
+    </table>
+  `;
+}
+
 function impactList(impacts = []) {
   if (!impacts.length) return '<p style="color:#49657e;">Sem tarefas vencidas relevantes no periodo.</p>';
   return `
@@ -186,18 +264,17 @@ function impactList(impacts = []) {
   `;
 }
 
-function buildReportEmailHtml({
-  collaborator,
-  department,
-  person,
-  period,
-  comparison,
-  monthly,
-} = {}) {
-  const personSummary = person?.summary || {};
-  const departmentSummary = department?.summary || {};
-  const comparisonScore = comparison?.summary?.productivityScore;
-  const monthlyHtml = monthly ? `
+function formatDuration(seconds) {
+  const value = Number(seconds || 0);
+  if (!value) return '0h';
+  const hours = value / 3600;
+  if (hours < 24) return `${formatNumber(hours)}h`;
+  return `${formatNumber(hours / 24)}d`;
+}
+
+function monthlyTemplateHtml(monthly) {
+  if (!monthly) return '';
+  return `
     <h2 style="font-size:18px;color:#0b2840;margin:28px 0 8px;">Complemento mensal</h2>
     <p style="color:#49657e;margin:0 0 12px;">
       Mes fechado: ${escapeHtml(monthly.period.start)} a ${escapeHtml(monthly.period.end)}.
@@ -209,46 +286,117 @@ function buildReportEmailHtml({
         ${metricBlock('Produtividade mensal departamento', formatPercent(monthly.department?.summary?.productivityScore))}
       </tr>
     </table>
-  ` : '';
+  `;
+}
+
+function escapeTemplateText(value) {
+  return escapeHtml(value).replace(/\r?\n/g, '<br>');
+}
+
+function renderTemplateHtml(template, variables = {}) {
+  const safeHtmlVariables = new Set(['blocoMetricas', 'tarefasCriticas', 'complementoMensalTexto']);
+  const pattern = /{{\s*([a-zA-Z0-9_]+)\s*}}/g;
+  let cursor = 0;
+  let output = '';
+  let match;
+
+  while ((match = pattern.exec(template)) !== null) {
+    output += escapeTemplateText(template.slice(cursor, match.index));
+    const key = match[1];
+    const value = variables[key] ?? '';
+    output += safeHtmlVariables.has(key) ? String(value || '') : escapeTemplateText(value);
+    cursor = match.index + match[0].length;
+  }
+
+  output += escapeTemplateText(template.slice(cursor));
+  return output;
+}
+
+function renderTemplateText(template, variables = {}) {
+  return String(template || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => {
+    if (['blocoMetricas', 'tarefasCriticas', 'complementoMensalTexto'].includes(key)) return '';
+    return String(variables[key] ?? '');
+  }).replace(/\s+/g, ' ').trim();
+}
+
+function buildReportTemplateVariables({
+  collaborator,
+  department,
+  person,
+  period,
+  comparison,
+  monthly,
+} = {}) {
+  const personSummary = person?.summary || {};
+  const departmentSummary = department?.summary || {};
+  const comparisonScore = comparison?.summary?.productivityScore;
+  return {
+    colaborador: collaborator || '',
+    periodo: `${period?.start || ''} a ${period?.end || ''}`,
+    periodoInicio: period?.start || '',
+    periodoFim: period?.end || '',
+    produtividade: formatPercent(personSummary.productivityScore),
+    entregues: formatNumber(personSummary.delivered),
+    noPrazo: formatPercent(personSummary.onTimeRate),
+    atrasadas: formatNumber(personSummary.late),
+    vencidas: formatNumber(personSummary.overdueOpen),
+    vazao: formatNumber(personSummary.throughput),
+    tempoMedio: formatDuration(personSummary.averageExecutionSeconds),
+    tempoApontado: formatDuration(personSummary.workedSeconds),
+    departamentoProdutividade: formatPercent(departmentSummary.productivityScore),
+    departamentoEntregues: formatNumber(departmentSummary.delivered),
+    departamentoNoPrazo: formatPercent(departmentSummary.onTimeRate),
+    departamentoAtrasadas: formatNumber(departmentSummary.late),
+    departamentoVencidas: formatNumber(departmentSummary.overdueOpen),
+    departamentoVazao: formatNumber(departmentSummary.throughput),
+    blocoMetricas: metricTableHtml(personSummary, departmentSummary, comparisonScore),
+    tarefasCriticas: impactList(person?.productivityImpacts || []),
+    complementoMensal: monthly ? ' + fechamento mensal' : '',
+    complementoMensalTexto: monthlyTemplateHtml(monthly),
+  };
+}
+
+function buildReportEmailHtml({
+  collaborator,
+  department,
+  person,
+  period,
+  comparison,
+  monthly,
+  template,
+} = {}) {
+  const reportTemplate = getReportTemplate(process.env, template);
+  const variables = buildReportTemplateVariables({
+    collaborator,
+    department,
+    person,
+    period,
+    comparison,
+    monthly,
+  });
+  const bodyHtml = renderTemplateHtml(reportTemplate.bodyTemplate, variables);
 
   return `
     <div style="font-family:Arial,sans-serif;background:#f4f7fb;padding:24px;color:#0b2840;">
       <div style="max-width:720px;margin:0 auto;background:white;border:1px solid #d8e2ec;border-radius:10px;padding:24px;">
         <p style="font-size:12px;color:#49657e;text-transform:uppercase;font-weight:700;margin:0;">Runrun.it Analytics</p>
-        <h1 style="font-size:24px;margin:6px 0 8px;">Relatorio de produtividade - ${escapeHtml(collaborator)}</h1>
-        <p style="color:#49657e;margin:0 0 18px;">Periodo: ${escapeHtml(period?.start)} a ${escapeHtml(period?.end)}</p>
-
-        <h2 style="font-size:18px;margin:20px 0 8px;">Produtividade individual</h2>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
-          <tr>
-            ${metricBlock('Produtividade', formatPercent(personSummary.productivityScore), comparisonScore === undefined ? '' : `Periodo anterior: ${formatPercent(comparisonScore)}`)}
-            ${metricBlock('Entregues', formatNumber(personSummary.delivered))}
-            ${metricBlock('No prazo', formatPercent(personSummary.onTimeRate))}
-            ${metricBlock('Abertas vencidas', formatNumber(personSummary.overdueOpen))}
-          </tr>
-        </table>
-
-        <h2 style="font-size:18px;margin:28px 0 8px;">Produtividade do departamento</h2>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
-          <tr>
-            ${metricBlock('Departamento', formatPercent(departmentSummary.productivityScore))}
-            ${metricBlock('Entregues', formatNumber(departmentSummary.delivered))}
-            ${metricBlock('No prazo', formatPercent(departmentSummary.onTimeRate))}
-            ${metricBlock('Abertas vencidas', formatNumber(departmentSummary.overdueOpen))}
-          </tr>
-        </table>
-
-        <h2 style="font-size:18px;margin:28px 0 8px;">Tarefas que mais afetam o fluxo</h2>
-        ${impactList(person?.productivityImpacts || [])}
-        ${monthlyHtml}
+        ${bodyHtml}
       </div>
     </div>
   `;
 }
 
-function buildSubject(collaborator, period, monthly = false) {
-  const suffix = monthly ? ' + fechamento mensal' : '';
-  return `Relatorio de produtividade - ${collaborator} - ${period.start} a ${period.end}${suffix}`;
+function buildSubject({ collaborator, department, person, period, comparison, monthly, template } = {}) {
+  const reportTemplate = getReportTemplate(process.env, template);
+  const variables = buildReportTemplateVariables({
+    collaborator,
+    department,
+    person,
+    period,
+    comparison,
+    monthly,
+  });
+  return renderTemplateText(reportTemplate.subjectTemplate, variables);
 }
 
 function buildAnalyticsForPeriod(tasks, config, period, options = {}) {
@@ -260,7 +408,7 @@ function buildAnalyticsForPeriod(tasks, config, period, options = {}) {
   });
 }
 
-function buildReportForCollaborator({ collaborator, tasks, config, periods, boardScope = 'all' }) {
+function buildReportForCollaborator({ collaborator, tasks, config, periods, boardScope = 'all', template } = {}) {
   const department = buildAnalyticsForPeriod(tasks, config, periods.week, { boardScope });
   const previousDepartment = buildAnalyticsForPeriod(tasks, config, periods.previousWeek, { boardScope });
   const person = department.people.find((item) => matchesConfiguredName(item.name, collaborator));
@@ -284,7 +432,15 @@ function buildReportForCollaborator({ collaborator, tasks, config, periods, boar
     person,
     comparison: comparisonPerson,
     monthly,
-    subject: buildSubject(collaborator, periods.week, Boolean(monthly)),
+    subject: buildSubject({
+      collaborator,
+      department,
+      person,
+      period: periods.week,
+      comparison: comparisonPerson,
+      monthly,
+      template,
+    }),
     html: buildReportEmailHtml({
       collaborator,
       department,
@@ -292,6 +448,7 @@ function buildReportForCollaborator({ collaborator, tasks, config, periods, boar
       period: periods.week,
       comparison: comparisonPerson,
       monthly,
+      template,
     }),
   };
 }
@@ -360,6 +517,7 @@ async function loadReportContext({ env = process.env, referenceDate = new Date()
 async function sendScheduledReports({ env = process.env, referenceDate = new Date(), fetchImpl, boardScope = 'all' } = {}) {
   const context = await loadReportContext({ env, referenceDate, fetchImpl, boardScope });
   const from = getReportFromOptions(env)[0];
+  const template = getReportTemplate(env);
   const recipients = resolveCollaboratorRecipients(context.snapshot.users, context.config.collaborators);
   const sent = [];
   const skipped = [];
@@ -371,6 +529,7 @@ async function sendScheduledReports({ env = process.env, referenceDate = new Dat
       config: context.config,
       periods: context.periods,
       boardScope,
+      template,
     });
     if (!report.person) {
       skipped.push({ collaborator: recipient.collaborator, reason: 'Sem dados no periodo.' });
@@ -394,6 +553,7 @@ async function sendTestReport({
   from,
   to,
   collaborator,
+  template,
   env = process.env,
   referenceDate = new Date(),
   fetchImpl,
@@ -414,6 +574,7 @@ async function sendTestReport({
     config: context.config,
     periods: context.periods,
     boardScope,
+    template: getReportTemplate(env, template),
   });
   const result = await sendEmailViaResend({
     from: normalizeEmail(from) || getReportFromOptions(env)[0],
@@ -428,11 +589,16 @@ async function sendTestReport({
 
 module.exports = {
   DEFAULT_REPORT_FROM,
+  DEFAULT_REPORT_BODY_TEMPLATE,
+  DEFAULT_REPORT_SUBJECT_TEMPLATE,
+  REPORT_TEMPLATE_VARIABLES,
   buildReportEmailHtml,
   buildReportForCollaborator,
   buildReportPeriods,
+  getReportTemplate,
   getReportFromOptions,
   resolveCollaboratorRecipients,
+  renderTemplateText,
   sendEmailViaResend,
   sendScheduledReports,
   sendTestReport,
