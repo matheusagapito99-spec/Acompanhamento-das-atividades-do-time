@@ -1,4 +1,39 @@
 const DEFAULT_REPORT_FROM = 'm.agapito@avalyst.com.br';
+const DEFAULT_REPORT_SUBJECT_TEMPLATE = 'Relatorio de produtividade - {{colaborador}} - {{periodo}}{{complementoMensal}}';
+const DEFAULT_REPORT_BODY_TEMPLATE = `Ola, {{colaborador}}.
+
+Segue o fechamento de produtividade do periodo {{periodo}}.
+
+{{blocoMetricas}}
+
+Tarefas que mais afetam o fluxo:
+{{tarefasCriticas}}
+
+{{complementoMensalTexto}}`;
+const REPORT_TEMPLATE_VARIABLES = [
+  'colaborador',
+  'periodo',
+  'periodoInicio',
+  'periodoFim',
+  'produtividade',
+  'entregues',
+  'noPrazo',
+  'atrasadas',
+  'vencidas',
+  'vazao',
+  'tempoMedio',
+  'tempoApontado',
+  'departamentoProdutividade',
+  'departamentoEntregues',
+  'departamentoNoPrazo',
+  'departamentoAtrasadas',
+  'departamentoVencidas',
+  'departamentoVazao',
+  'blocoMetricas',
+  'tarefasCriticas',
+  'complementoMensal',
+  'complementoMensalTexto',
+];
 const STORAGE_KEYS = {
   boardScope: 'runrunit-dashboard-board-scope',
   productivitySettings: 'runrunit-dashboard-productivity-settings',
@@ -39,6 +74,8 @@ function readStoredSettings() {
       reportFrom: sanitizeEmail(parsed.reportFrom) || DEFAULT_REPORT_FROM,
       testReportRecipient: sanitizeEmail(parsed.testReportRecipient),
       testReportPerson: parsed.testReportPerson || '',
+      reportSubjectTemplate: String(parsed.reportSubjectTemplate || '').trim() || DEFAULT_REPORT_SUBJECT_TEMPLATE,
+      reportBodyTemplate: String(parsed.reportBodyTemplate || '').trim() || DEFAULT_REPORT_BODY_TEMPLATE,
     };
   } catch (error) {
     return {
@@ -46,6 +83,8 @@ function readStoredSettings() {
       reportFrom: DEFAULT_REPORT_FROM,
       testReportRecipient: '',
       testReportPerson: '',
+      reportSubjectTemplate: DEFAULT_REPORT_SUBJECT_TEMPLATE,
+      reportBodyTemplate: DEFAULT_REPORT_BODY_TEMPLATE,
     };
   }
 }
@@ -99,6 +138,10 @@ const els = {
   reportFrom: document.getElementById('reportFrom'),
   testReportPerson: document.getElementById('testReportPerson'),
   testReportRecipient: document.getElementById('testReportRecipient'),
+  reportSubjectTemplate: document.getElementById('reportSubjectTemplate'),
+  reportBodyTemplate: document.getElementById('reportBodyTemplate'),
+  resetReportTemplate: document.getElementById('resetReportTemplate'),
+  templateVariableList: document.getElementById('templateVariableList'),
   sendTestReport: document.getElementById('sendTestReport'),
   testReportStatus: document.getElementById('testReportStatus'),
   resetSettings: document.getElementById('resetSettings'),
@@ -798,6 +841,80 @@ function setSelectOptions(select, values = [], selectedValue = '') {
   }).join('');
 }
 
+function normalizeTemplateVariables(values = REPORT_TEMPLATE_VARIABLES) {
+  return values.map((item) => {
+    if (typeof item === 'string') return { key: item, label: item };
+    return {
+      key: String(item.key || '').trim(),
+      label: String(item.label || item.key || '').trim(),
+    };
+  }).filter((item) => item.key);
+}
+
+function getReportTemplateDefaults() {
+  const template = state.reportConfig?.template || {};
+  return {
+    subjectTemplate: template.subjectTemplate || DEFAULT_REPORT_SUBJECT_TEMPLATE,
+    bodyTemplate: template.bodyTemplate || DEFAULT_REPORT_BODY_TEMPLATE,
+    variables: normalizeTemplateVariables(template.variables || REPORT_TEMPLATE_VARIABLES),
+  };
+}
+
+function renderTemplateVariables() {
+  if (!els.templateVariableList) return;
+  const defaults = getReportTemplateDefaults();
+  els.templateVariableList.innerHTML = defaults.variables.map((item) => `
+    <button class="template-variable" type="button" data-template-variable="${escapeHtml(item.key)}" title="${escapeHtml(item.label)}">
+      {{${escapeHtml(item.key)}}}
+    </button>
+  `).join('');
+}
+
+function syncTemplateInputsFromState() {
+  const defaults = getReportTemplateDefaults();
+  if (!state.settings.reportSubjectTemplate || state.settings.reportSubjectTemplate === DEFAULT_REPORT_SUBJECT_TEMPLATE) {
+    state.settings.reportSubjectTemplate = defaults.subjectTemplate;
+  }
+  if (!state.settings.reportBodyTemplate || state.settings.reportBodyTemplate === DEFAULT_REPORT_BODY_TEMPLATE) {
+    state.settings.reportBodyTemplate = defaults.bodyTemplate;
+  }
+  if (els.reportSubjectTemplate) {
+    els.reportSubjectTemplate.value = state.settings.reportSubjectTemplate;
+  }
+  if (els.reportBodyTemplate) {
+    els.reportBodyTemplate.value = state.settings.reportBodyTemplate;
+  }
+  renderTemplateVariables();
+}
+
+function resetReportTemplate() {
+  const defaults = getReportTemplateDefaults();
+  state.settings.reportSubjectTemplate = defaults.subjectTemplate;
+  state.settings.reportBodyTemplate = defaults.bodyTemplate;
+  persistSettings();
+  syncTemplateInputsFromState();
+}
+
+function insertTemplateVariable(variableName) {
+  const token = `{{${variableName}}}`;
+  const field = document.activeElement === els.reportSubjectTemplate
+    ? els.reportSubjectTemplate
+    : els.reportBodyTemplate;
+  if (!field) return;
+  const start = Number.isInteger(field.selectionStart) ? field.selectionStart : field.value.length;
+  const end = Number.isInteger(field.selectionEnd) ? field.selectionEnd : start;
+  field.value = `${field.value.slice(0, start)}${token}${field.value.slice(end)}`;
+  const nextPosition = start + token.length;
+  if (typeof field.setSelectionRange === 'function') field.setSelectionRange(nextPosition, nextPosition);
+  if (field === els.reportSubjectTemplate) {
+    state.settings.reportSubjectTemplate = field.value;
+  } else {
+    state.settings.reportBodyTemplate = field.value;
+  }
+  persistSettings();
+  field.focus();
+}
+
 function renderAutomationControls() {
   const config = state.reportConfig || {};
   const fromOptions = config.fromOptions?.length ? config.fromOptions : [DEFAULT_REPORT_FROM];
@@ -812,6 +929,7 @@ function renderAutomationControls() {
   if (els.testReportRecipient) {
     els.testReportRecipient.value = state.settings.testReportRecipient || '';
   }
+  syncTemplateInputsFromState();
 }
 
 async function loadReportConfig() {
@@ -845,9 +963,13 @@ async function sendTestReport() {
   const from = els.reportFrom?.value || DEFAULT_REPORT_FROM;
   const collaborator = els.testReportPerson?.value || state.selectedPerson;
   const to = sanitizeEmail(els.testReportRecipient?.value);
+  const subjectTemplate = String(els.reportSubjectTemplate?.value || '').trim() || DEFAULT_REPORT_SUBJECT_TEMPLATE;
+  const bodyTemplate = String(els.reportBodyTemplate?.value || '').trim() || DEFAULT_REPORT_BODY_TEMPLATE;
   state.settings.reportFrom = from;
   state.settings.testReportPerson = collaborator;
   state.settings.testReportRecipient = to;
+  state.settings.reportSubjectTemplate = subjectTemplate;
+  state.settings.reportBodyTemplate = bodyTemplate;
   persistSettings();
 
   if (!to) {
@@ -873,6 +995,10 @@ async function sendTestReport() {
         to,
         collaborator,
         boardScope: state.boardScope,
+        template: {
+          subjectTemplate,
+          bodyTemplate,
+        },
       }),
     });
     const payload = await response.json();
@@ -992,6 +1118,32 @@ if (els.testReportRecipient) {
   els.testReportRecipient.addEventListener('input', () => {
     state.settings.testReportRecipient = sanitizeEmail(els.testReportRecipient.value);
     persistSettings();
+  });
+}
+
+if (els.reportSubjectTemplate) {
+  els.reportSubjectTemplate.addEventListener('input', () => {
+    state.settings.reportSubjectTemplate = els.reportSubjectTemplate.value || DEFAULT_REPORT_SUBJECT_TEMPLATE;
+    persistSettings();
+  });
+}
+
+if (els.reportBodyTemplate) {
+  els.reportBodyTemplate.addEventListener('input', () => {
+    state.settings.reportBodyTemplate = els.reportBodyTemplate.value || DEFAULT_REPORT_BODY_TEMPLATE;
+    persistSettings();
+  });
+}
+
+if (els.resetReportTemplate) {
+  els.resetReportTemplate.addEventListener('click', resetReportTemplate);
+}
+
+if (els.templateVariableList) {
+  els.templateVariableList.addEventListener('click', (event) => {
+    const button = event.target.closest?.('.template-variable');
+    if (!button) return;
+    insertTemplateVariable(button.dataset.templateVariable);
   });
 }
 
