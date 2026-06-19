@@ -610,6 +610,34 @@ function averageDailyWip(tasks, period) {
   return Math.round((total / Math.max(totalDays, 1)) * 10) / 10;
 }
 
+function buildDailySeries(tasks, period) {
+  const totalDays = daysBetween(period.startKey, period.endKey) + 1;
+  const series = [];
+
+  for (let index = 0; index < totalDays; index += 1) {
+    const key = addDaysKey(period.startKey, index);
+    const dayStart = startOfDay(key);
+    const dayEnd = endOfDay(key);
+    const dayPeriod = { ...period, start: dayStart, end: dayEnd, startKey: key, endKey: key };
+    let delivered = 0;
+    let opened = 0;
+    let wip = 0;
+    let overdue = 0;
+
+    for (const task of tasks) {
+      const flags = buildTaskFlags(task, dayPeriod);
+      if (flags.delivered) delivered += 1;
+      if (flags.openedCreatedInPeriod) opened += 1;
+      if (flags.active) wip += 1;
+      if (flags.overdueOpen) overdue += 1;
+    }
+
+    series.push({ date: key, delivered, opened, wip, overdue });
+  }
+
+  return series;
+}
+
 function summarizeTasks(tasks = [], period, settingsInput = {}) {
   const productivitySettings = normalizeProductivitySettings(settingsInput);
   const summary = {
@@ -1094,6 +1122,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
       breakdowns: buildBreakdowns(personTasks, period),
       stageFunnel: buildStageFunnel(personTasks, period),
       productivityImpacts: buildProductivityImpacts(personAudit),
+      dailySeries: buildDailySeries(personTasks, period),
     };
   });
 
@@ -1121,6 +1150,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
     people,
     comparisons: [buildComparison(productivityTasks, period, productivitySettings)],
     breakdowns: buildBreakdowns(productivityTasks, period),
+    dailySeries: buildDailySeries(productivityTasks, period),
     stageFunnel: buildStageFunnel(productivityTasks, period),
     productivitySettings,
     productivityImpacts: buildProductivityImpacts(audit),
@@ -1132,6 +1162,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
 
 module.exports = {
   buildAnalytics,
+  buildDailySeries,
   buildTaskFlags,
   expandTaskAssignments,
   getPresetRange,

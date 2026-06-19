@@ -3,7 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Acompanhamento das atividades do time</title>
+    <meta name="description" content="Painel de produtividade do departamento de Marketing com dados reais do Runrun.it: visão geral, pessoas, fluxo, alertas e auditoria.">
+    <meta name="theme-color" content="#0b1f33">
+    <meta name="color-scheme" content="light">
+    <title>Marketing Analytics · Acompanhamento do time</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff7a66'/%3E%3Cstop offset='1' stop-color='%23f0513d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Ctext x='32' y='34' font-family='Segoe UI, Arial, sans-serif' font-size='38' font-weight='bold' fill='white' text-anchor='middle' dominant-baseline='central'%3EM%3C/text%3E%3C/svg%3E">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -16,18 +20,29 @@
             <span>Runrun.it Analytics</span>
           </div>
         </div>
-        <nav class="nav-tabs" aria-label="Visoes">
-          <button class="nav-tab active" data-tab="overview">Geral</button>
-          <button class="nav-tab" data-tab="workload">Carga</button>
-          <button class="nav-tab" data-tab="individual">Individual</button>
-          <button class="nav-tab" data-tab="alerts">Alertas</button>
-          <button class="nav-tab" data-tab="audit">Auditoria</button>
+        <nav class="nav-tabs" aria-label="Visões">
+          <button class="nav-tab active" data-tab="overview">
+            <span class="nav-ico" aria-hidden="true">▦</span> Visão geral
+          </button>
+          <button class="nav-tab" data-tab="people">
+            <span class="nav-ico" aria-hidden="true">◍</span> Pessoas
+          </button>
+          <button class="nav-tab" data-tab="flow">
+            <span class="nav-ico" aria-hidden="true">⇄</span> Fluxo
+          </button>
+          <button class="nav-tab" data-tab="alerts">
+            <span class="nav-ico" aria-hidden="true">!</span> Alertas
+            <span class="nav-badge hidden" id="alertsBadge">0</span>
+          </button>
+          <button class="nav-tab" data-tab="audit">
+            <span class="nav-ico" aria-hidden="true">≣</span> Auditoria
+          </button>
         </nav>
         <div class="sidebar-footer">
           <div class="sidebar-note">
-            <span>Quadros</span>
+            <span>Quadros monitorados</span>
             <strong>Demandas MKT</strong>
-            <strong>Criacao</strong>
+            <strong>Criação</strong>
           </div>
           <button class="settings-button" id="settingsButton" type="button" aria-label="Abrir configurações">
             <span aria-hidden="true">&#9881;</span>
@@ -38,40 +53,44 @@
 
       <main class="main">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">Departamento</p>
-            <h1>Acompanhamento das atividades do time</h1>
+          <div class="topbar-title">
+            <p class="eyebrow">Departamento de Marketing</p>
+            <h1 id="viewTitle">Visão geral</h1>
+            <p class="topbar-sub" id="periodTitle">Carregando período…</p>
           </div>
           <div class="status-stack">
             <div class="status-pill" id="connectionStatus">Conectando</div>
-            <small id="refreshCountdown">Proxima atualizacao em --</small>
+            <div class="status-meta">
+              <small id="refreshCountdown">Próxima atualização em --</small>
+              <button class="icon-refresh" id="refreshButton" type="button" aria-label="Atualizar agora" title="Atualizar agora">↻</button>
+            </div>
           </div>
         </header>
 
-        <section class="filters" aria-label="Filtros de periodo">
+        <section class="filters" aria-label="Filtros">
           <label class="board-filter">
-            Quadro
+            <span class="field-label">Quadro</span>
             <select id="boardScope">
               <option value="all">Todos</option>
               <option value="marketing">Demandas MKT</option>
-              <option value="creation">Criacao</option>
+              <option value="creation">Criação</option>
             </select>
           </label>
-          <div class="preset-group" role="group" aria-label="Periodos">
+          <div class="preset-group" role="group" aria-label="Períodos rápidos">
             <button class="preset active" data-preset="this-week">Semana</button>
-            <button class="preset" data-preset="last-week">Semana anterior</button>
+            <button class="preset" data-preset="last-week">Semana ant.</button>
             <button class="preset" data-preset="this-fortnight">Quinzena</button>
-            <button class="preset" data-preset="last-fortnight">Quinzena anterior</button>
-            <button class="preset" data-preset="this-month">Mes</button>
-            <button class="preset" data-preset="last-month">Mes anterior</button>
+            <button class="preset" data-preset="last-fortnight">Quinzena ant.</button>
+            <button class="preset" data-preset="this-month">Mês</button>
+            <button class="preset" data-preset="last-month">Mês ant.</button>
           </div>
           <div class="custom-range">
             <label>
-              Inicio
+              <span class="field-label">Início</span>
               <input type="date" id="startDate">
             </label>
             <label>
-              Fim
+              <span class="field-label">Fim</span>
               <input type="date" id="endDate">
             </label>
             <button class="primary-button" id="applyCustom">Aplicar</button>
@@ -80,117 +99,199 @@
 
         <div class="notice hidden" id="notice"></div>
 
-        <section class="global-overview" id="globalOverview">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Visao geral</p>
-              <h2 id="periodTitle">Carregando periodo</h2>
-            </div>
-            <button class="ghost-button" id="refreshButton">Atualizar</button>
-          </div>
-          <div class="metric-grid" id="metricGrid"></div>
-        </section>
-
+        <!-- ================= VISÃO GERAL ================= -->
         <section class="view active" id="overviewView">
-          <div class="two-column">
-            <article class="panel">
+          <div class="insights-band" id="insightsList"></div>
+
+          <div class="metric-grid" id="metricGrid"></div>
+
+          <div class="chart-grid">
+            <article class="panel chart-panel span-4">
               <div class="panel-header">
-                <h3>Desempenho por colaborador</h3>
+                <div>
+                  <h3>Saúde da produtividade</h3>
+                  <p class="panel-note">Composição do score do departamento.</p>
+                </div>
               </div>
-              <div id="peopleSummary"></div>
+              <div class="chart-host" id="productivityDonut"></div>
             </article>
-            <article class="panel">
+            <article class="panel chart-panel span-4">
               <div class="panel-header">
-                <h3>Origem das demandas</h3>
+                <div>
+                  <h3>Composição das entregas</h3>
+                  <p class="panel-note">Como as tarefas com prazo terminaram.</p>
+                </div>
               </div>
-              <div id="boardBreakdown"></div>
+              <div class="chart-host" id="deliveryComposition"></div>
+            </article>
+            <article class="panel chart-panel span-4">
+              <div class="panel-header">
+                <div>
+                  <h3>Comparativo por pessoa</h3>
+                  <p class="panel-note">Produtividade individual no período.</p>
+                </div>
+              </div>
+              <div class="chart-host" id="peopleChart"></div>
             </article>
           </div>
-          <article class="panel stage-panel">
+
+          <article class="panel chart-panel">
             <div class="panel-header">
               <div>
-                <h3>Tarefas que afetam a saude do fluxo</h3>
-                <p class="panel-note">Itens vencidos ou entregues fora do prazo que pressionam SLE e backlog.</p>
+                <h3>Tendência diária</h3>
+                <p class="panel-note">Tarefas abertas e entregues por dia no período.</p>
+              </div>
+              <div class="legend" id="trendLegend"></div>
+            </div>
+            <div class="chart-host tall" id="trendChart"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Tarefas que mais afetam o fluxo</h3>
+                <p class="panel-note">Itens vencidos ou entregues fora do prazo que pressionam o SLE e o backlog.</p>
               </div>
             </div>
             <div id="productivityImpact"></div>
           </article>
-          <article class="panel stage-panel">
+        </section>
+
+        <!-- ================= PESSOAS ================= -->
+        <section class="view" id="peopleView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Equipe</p>
+              <h2>Desempenho por colaborador</h2>
+            </div>
+          </div>
+          <div class="people-grid" id="peopleSummary"></div>
+
+          <article class="panel detail-panel">
+            <div class="panel-header detail-head">
+              <div>
+                <p class="eyebrow">Análise individual</p>
+                <h2 id="individualTitle">Allana</h2>
+              </div>
+              <label class="inline-select">
+                <span class="field-label">Colaborador</span>
+                <select id="personSelect" aria-label="Selecionar colaborador"></select>
+              </label>
+            </div>
+            <div class="metric-grid compact" id="individualMetrics"></div>
+            <div class="chart-grid">
+              <div class="panel inset span-8">
+                <div class="panel-header"><h3>Tendência do colaborador</h3></div>
+                <div class="chart-host" id="individualTrend"></div>
+              </div>
+              <div class="panel inset span-4">
+                <div class="panel-header"><h3>Entregas com prazo</h3></div>
+                <div class="chart-host" id="individualOnTime"></div>
+              </div>
+            </div>
+            <div class="panel inset">
+              <div class="panel-header">
+                <div>
+                  <h3>Tarefas que afetam o fluxo desta pessoa</h3>
+                  <p class="panel-note">Itens vencidos ou fora do prazo dentro do período selecionado.</p>
+                </div>
+              </div>
+              <div id="individualImpact"></div>
+            </div>
+            <div class="two-column">
+              <article class="panel inset">
+                <div class="panel-header"><h3>Distribuição</h3></div>
+                <div id="individualBreakdowns"></div>
+              </article>
+              <article class="panel inset">
+                <div class="panel-header"><h3>Tarefas recentes</h3></div>
+                <div id="individualTasks"></div>
+              </article>
+            </div>
+          </article>
+        </section>
+
+        <!-- ================= FLUXO ================= -->
+        <section class="view" id="flowView">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Cadência e gargalos</p>
+              <h2>Fluxo de trabalho</h2>
+            </div>
+          </div>
+          <div class="metric-grid" id="flowMetrics"></div>
+
+          <article class="panel chart-panel">
+            <div class="panel-header">
+              <div>
+                <h3>WIP ao longo do período</h3>
+                <p class="panel-note">Trabalho em andamento (tarefas ativas) por dia.</p>
+              </div>
+            </div>
+            <div class="chart-host tall" id="wipTrend"></div>
+          </article>
+
+          <article class="panel">
             <div class="panel-header">
               <div>
                 <h3>Gargalos por etapa</h3>
-                <p class="panel-note">Distribuicao do tempo aproximado dos cards pela etapa atual.</p>
+                <p class="panel-note">Onde o tempo está concentrado nos cards abertos.</p>
               </div>
             </div>
             <div id="stageFunnel"></div>
           </article>
-        </section>
 
-        <section class="view" id="workloadView">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Equilibrio</p>
-              <h2>Carga e fila por pessoa</h2>
-            </div>
-          </div>
-          <div class="panel">
-            <div id="workloadRows"></div>
-          </div>
-        </section>
-
-        <section class="view" id="individualView">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Analise individual</p>
-              <h2 id="individualTitle">Allana</h2>
-            </div>
-            <select id="personSelect" aria-label="Selecionar colaborador"></select>
-          </div>
-          <div class="metric-grid" id="individualMetrics"></div>
-          <article class="panel stage-panel">
+          <article class="panel">
             <div class="panel-header">
               <div>
-                <h3>Tarefas que afetam o fluxo desta pessoa</h3>
-                <p class="panel-note">Itens vencidos ou entregues fora do prazo dentro do periodo selecionado.</p>
+                <h3>Carga e fila por pessoa</h3>
+                <p class="panel-note">Tarefas abertas e vencidas que cada pessoa carrega.</p>
               </div>
             </div>
-            <div id="individualImpact"></div>
+            <div id="workloadRows"></div>
           </article>
+
           <div class="two-column">
             <article class="panel">
-              <div class="panel-header"><h3>Distribuicao</h3></div>
-              <div id="individualBreakdowns"></div>
+              <div class="panel-header"><h3>Origem das demandas</h3></div>
+              <div id="boardBreakdown"></div>
             </article>
             <article class="panel">
-              <div class="panel-header"><h3>Tarefas recentes</h3></div>
-              <div id="individualTasks"></div>
+              <div class="panel-header"><h3>Por etapa</h3></div>
+              <div id="stageBreakdown"></div>
             </article>
           </div>
         </section>
 
+        <!-- ================= ALERTAS ================= -->
         <section class="view" id="alertsView">
           <div class="section-header">
             <div>
-              <p class="eyebrow">Atencao</p>
-              <h2>Alertas de gestao</h2>
+              <p class="eyebrow">Atenção</p>
+              <h2>Alertas de gestão</h2>
             </div>
           </div>
           <div id="alertsList"></div>
         </section>
 
+        <!-- ================= AUDITORIA ================= -->
         <section class="view" id="auditView">
           <div class="section-header">
             <div>
-              <p class="eyebrow">Fonte</p>
-              <h2>Auditoria das tarefas usadas no calculo</h2>
+              <p class="eyebrow">Fonte dos dados</p>
+              <h2>Auditoria das tarefas usadas no cálculo</h2>
             </div>
+            <label class="inline-select search-box">
+              <span class="field-label">Buscar</span>
+              <input type="search" id="auditSearch" placeholder="Tarefa, responsável, quadro…">
+            </label>
           </div>
           <div class="panel table-panel">
             <table>
               <thead>
                 <tr>
                   <th>Tarefa</th>
-                  <th>Responsavel</th>
+                  <th>Responsável</th>
                   <th>Quadro</th>
                   <th>Status</th>
                   <th>Prazo</th>
@@ -209,35 +310,19 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Configurações</p>
-            <h2 id="settingsTitle">Produtividade</h2>
+            <h2 id="settingsTitle">Produtividade e automação</h2>
           </div>
           <button class="icon-button" id="closeSettings" type="button" aria-label="Fechar">&times;</button>
         </div>
-        <div class="settings-tabs" role="tablist" aria-label="Configuracoes de produtividade">
+        <div class="settings-tabs" role="tablist" aria-label="Configurações de produtividade">
           <button class="settings-tab active" type="button" data-settings-tab="cards">Cards usados</button>
-          <button class="settings-tab" type="button" data-settings-tab="automation">Automacao</button>
-        </div>
-        <div class="settings-panel hidden" data-settings-panel="weights">
-          <p class="panel-note" id="settingsTargetNote">
-            Esse peso mede a pressão de atraso usada nos componentes de controle de atraso e backlog vencido.
-          </p>
-          <label class="settings-field">
-            Meta de entregas no periodo
-            <input type="hidden" id="legacyThroughputRemoved" value="">
-          </label>
-          <div class="settings-row">
-            <span id="expectedThroughputPreview"></span>
-          </div>
-          <div class="modal-actions">
-            <button class="ghost-button" id="resetSettings" type="button">Padrao</button>
-            <button class="primary-button" id="saveSettings" type="button">Salvar metas</button>
-          </div>
+          <button class="settings-tab" type="button" data-settings-tab="automation">Automação</button>
         </div>
         <div class="settings-panel active" data-settings-panel="cards">
           <p class="panel-note">
-            Marque os cards que entram no calculo individual. Ao desmarcar um card, ele deixa de contar na produtividade daquela pessoa.
+            Marque os cards que entram no cálculo individual. Ao desmarcar um card, ele deixa de contar na produtividade daquela pessoa.
           </p>
-          <div class="card-selection-summary" id="cardSelectionSummary">Carregando cards usados no calculo.</div>
+          <div class="card-selection-summary" id="cardSelectionSummary">Carregando cards usados no cálculo.</div>
           <div class="card-selection-list" id="cardSelectionList"></div>
           <div class="modal-actions">
             <button class="ghost-button" id="includeAllCards" type="button">Marcar todos</button>
@@ -245,11 +330,11 @@
         </div>
         <div class="settings-panel hidden" data-settings-panel="automation">
           <p class="panel-note">
-            Envio automatico toda segunda-feira com fechamento da semana anterior. Na primeira semana do mes, o e-mail tambem inclui o fechamento mensal.
+            Envio automático toda segunda-feira com o fechamento da semana anterior. Na primeira semana do mês, o e-mail também inclui o fechamento mensal.
           </p>
           <label class="settings-field">
             Remetente
-            <select id="reportFrom" aria-label="Remetente do relatorio">
+            <select id="reportFrom" aria-label="Remetente do relatório">
               <option value="m.agapito@avalyst.com.br">m.agapito@avalyst.com.br</option>
             </select>
           </label>
@@ -258,26 +343,26 @@
             <select id="testReportPerson" aria-label="Colaborador do envio teste"></select>
           </label>
           <label class="settings-field">
-            Destinatario do teste
-            <input type="email" id="testReportRecipient" placeholder="email@avalyst.com.br" aria-label="Destinatario do envio teste">
+            Destinatário do teste
+            <input type="email" id="testReportRecipient" placeholder="email@avalyst.com.br" aria-label="Destinatário do envio teste">
           </label>
           <div class="email-template-editor">
             <div class="email-template-head">
               <div>
                 <h3>Modelo do e-mail</h3>
-                <p class="panel-note">Use as variaveis abaixo para manter as metricas dinamicas no assunto e no corpo.</p>
+                <p class="panel-note">Use as variáveis abaixo para manter as métricas dinâmicas no assunto e no corpo.</p>
               </div>
               <button class="ghost-button" id="resetReportTemplate" type="button">Restaurar modelo</button>
             </div>
             <label class="settings-field wide">
               Assunto
-              <input type="text" id="reportSubjectTemplate" aria-label="Assunto do relatorio">
+              <input type="text" id="reportSubjectTemplate" aria-label="Assunto do relatório">
             </label>
             <label class="settings-field wide">
               Corpo do e-mail
-              <textarea id="reportBodyTemplate" rows="12" aria-label="Corpo do relatorio"></textarea>
+              <textarea id="reportBodyTemplate" rows="12" aria-label="Corpo do relatório"></textarea>
             </label>
-            <div class="template-variable-list" id="templateVariableList" aria-label="Variaveis disponiveis"></div>
+            <div class="template-variable-list" id="templateVariableList" aria-label="Variáveis disponíveis"></div>
           </div>
           <div class="modal-actions">
             <button class="primary-button" id="sendTestReport" type="button">Enviar teste</button>

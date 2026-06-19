@@ -131,13 +131,13 @@ test('productivity help explains deadline reliability without throughput target'
   assert.doesNotMatch(help, /ponto por dia/i);
 });
 
-test('global overview is visible only on management tabs, not alerts or audit', () => {
+test('global overview applies to analytical tabs, not alerts or audit', () => {
   const context = loadAppContext();
 
   assert.equal(typeof context.shouldShowGlobalOverview, 'function');
   assert.equal(context.shouldShowGlobalOverview('overview'), true);
-  assert.equal(context.shouldShowGlobalOverview('workload'), true);
-  assert.equal(context.shouldShowGlobalOverview('individual'), true);
+  assert.equal(context.shouldShowGlobalOverview('people'), true);
+  assert.equal(context.shouldShowGlobalOverview('flow'), true);
   assert.equal(context.shouldShowGlobalOverview('alerts'), false);
   assert.equal(context.shouldShowGlobalOverview('audit'), false);
 });

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   buildAnalytics,
+  buildDailySeries,
   getPresetRange,
   scorePerson,
 } = require('../src/analytics.cjs');
@@ -145,6 +146,38 @@ test('buildAnalytics separates period demand, deadline status, flow metrics, and
   assert.equal(analytics.stageFunnel.rows.reduce((sum, row) => sum + row.percentage, 0), 100);
   assert.equal(analytics.people.length, 4);
   assert.equal(analytics.audit.length, 4);
+});
+
+test('buildAnalytics exposes a daily time series for trend charts', () => {
+  const analytics = buildAnalytics(tasks, {
+    ...config,
+    start: '2026-06-01',
+    end: '2026-06-08',
+  });
+
+  assert.ok(Array.isArray(analytics.dailySeries));
+  assert.equal(analytics.dailySeries.length, 8);
+  assert.equal(analytics.dailySeries[0].date, '2026-06-01');
+  assert.equal(analytics.dailySeries[7].date, '2026-06-08');
+  const totalDelivered = analytics.dailySeries.reduce((sum, day) => sum + day.delivered, 0);
+  const totalOpened = analytics.dailySeries.reduce((sum, day) => sum + day.opened, 0);
+  assert.equal(totalDelivered, analytics.summary.delivered);
+  assert.equal(totalOpened, analytics.summary.openedCreatedInPeriod);
+  assert.ok(analytics.people.every((person) => person.dailySeries.length === 8));
+});
+
+test('buildDailySeries returns one entry per day with non-negative counts', () => {
+  const period = {
+    start: new Date('2026-06-01T00:00:00-03:00'),
+    end: new Date('2026-06-03T23:59:59-03:00'),
+    startKey: '2026-06-01',
+    endKey: '2026-06-03',
+  };
+  const series = buildDailySeries(tasks, period);
+  assert.equal(series.length, 3);
+  series.forEach((day) => {
+    assert.ok(day.delivered >= 0 && day.opened >= 0 && day.wip >= 0 && day.overdue >= 0);
+  });
 });
 
 test('buildAnalytics applies the marketing and Bruno board rules', () => {
