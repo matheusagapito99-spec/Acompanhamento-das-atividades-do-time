@@ -1,4 +1,4 @@
-const { classifyBoard } = require('./history.cjs');
+const { classifyBoard, isApprovalStage, isExecutionStage } = require('./history.cjs');
 
 const DAY_SECONDS = 86400;
 const DAY_MS = DAY_SECONDS * 1000;
@@ -1130,29 +1130,49 @@ function getBrunoExecutionSeconds(task) {
   return fromHistory > 0 ? fromHistory : getWorkedSeconds(task);
 }
 
-function summarizeBruno(tasks = [], period) {
+// Bruno "executa" um card quando há tempo apontado, está numa etapa de execução ou em aprovação.
+// A fila de espera (sem trabalho) não conta como execução.
+function isBrunoExecuting(task) {
+  return getWorkedSeconds(task) > 0 || isExecutionStage(getStageName(task)) || isApprovalStage(getStageName(task));
+}
+
+function getApprovalExcessSeconds(task, now = new Date()) {
+  const fromHistory = Number(task.history?.approvalExcessSeconds || 0);
+  if (fromHistory > 0) return fromHistory;
+  if (getBoardContext(task) !== 'bruno' || !isApprovalStage(getStageName(task))) return 0;
+  const last = toDate(task.last_activity_at || task.updated_at || task.last_modified_at || task.modified_at);
+  if (!last) return 0;
+  const parked = Math.round((now.getTime() - last.getTime()) / 1000);
+  return Math.max(0, parked - DAY_SECONDS);
+}
+
+function summarizeBruno(tasks = [], period, now = new Date()) {
   let cardsWorked = 0;
   let executionSeconds = 0;
   let workedSeconds = 0;
   let estimatedSeconds = 0;
   let overEstimate = 0;
   let aging = 0;
+  const efficiencies = [];
 
   for (const task of tasks) {
     const flags = buildTaskFlags(task, period);
-    if (!flags.active && !flags.delivered) continue;
+    if ((!flags.active && !flags.delivered) || !isBrunoExecuting(task)) continue;
     cardsWorked += 1;
     const exec = getBrunoExecutionSeconds(task);
     const estimate = getEstimateSeconds(task);
     executionSeconds += exec;
     workedSeconds += getWorkedSeconds(task);
     estimatedSeconds += estimate;
-    if (estimate > 0 && exec > estimate) overEstimate += 1;
-    if (estimate > 0 && exec > 2 * estimate) aging += 1;
+    if (estimate > 0 && exec > 0) {
+      efficiencies.push(clampNumber((estimate / exec) * 100, 0, 100));
+      if (exec > estimate) overEstimate += 1;
+      if (exec > 2 * estimate) aging += 1;
+    }
   }
 
-  const efficiency = (estimatedSeconds > 0 && executionSeconds > 0)
-    ? clampNumber(Math.round((estimatedSeconds / executionSeconds) * 100), 0, 100)
+  const efficiency = efficiencies.length
+    ? Math.round(efficiencies.reduce((sum, value) => sum + value, 0) / efficiencies.length)
     : (executionSeconds > 0 ? 60 : 0);
   const averageExecutionSeconds = cardsWorked ? Math.round(executionSeconds / cardsWorked) : 0;
 
@@ -1181,10 +1201,10 @@ function summarizeBruno(tasks = [], period) {
   };
 }
 
-function buildApprovalExcessAlerts(tasks, collaborators) {
+function buildApprovalExcessAlerts(tasks, collaborators, now = new Date()) {
   const alerts = [];
   for (const task of tasks) {
-    const excess = Number(task.history?.approvalExcessSeconds || 0);
+    const excess = getApprovalExcessSeconds(task, now);
     if (excess <= 0) continue;
     const collaborator = findConfiguredName(task, collaborators) || getAssigneeName(task) || 'Departamento';
     alerts.push({
@@ -1217,8 +1237,9 @@ function buildAnalytics(rawTasks = [], options = {}) {
 
   const cardSelection = buildCardSelection(scopedTasks, period, collaborators, excludedTaskIdsByPerson, productivitySettings);
 
+  const now = options.referenceDate ? new Date(options.referenceDate) : new Date();
   const summary = summarizeTasks(girlTasks, period, productivitySettings);
-  const brunoSummary = summarizeBruno(brunoTasks, period);
+  const brunoSummary = summarizeBruno(brunoTasks, period, now);
   const girlsScore = summary.productivityScore;
   const blendedScore = brunoTasks.length
     ? (girlTasks.length
@@ -1233,13 +1254,13 @@ function buildAnalytics(rawTasks = [], options = {}) {
 
   const people = collaborators.map((name) => {
     if (isBruno(name)) {
-      const personSummary = summarizeBruno(brunoTasks, period);
+      const personSummary = summarizeBruno(brunoTasks, period, now);
       return {
         name,
         role: 'execution',
         summary: personSummary,
         comparison: buildComparison(brunoTasks, period, productivitySettings, {
-          summarizer: (list, range) => summarizeBruno(list, range),
+          summarizer: (list, range) => summarizeBruno(list, range, now),
           keys: BRUNO_COMPARISON_METRICS,
         }),
         breakdowns: buildBreakdowns(brunoTasks, period),
@@ -1262,7 +1283,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
     };
   });
 
-  const alerts = [...buildApprovalExcessAlerts(brunoTasks, collaborators), ...buildAlerts(audit, summary)].slice(0, 18);
+  const alerts = [...buildApprovalExcessAlerts(brunoTasks, collaborators, now), ...buildAlerts(audit, summary)].slice(0, 18);
 
   return {
     period: {

@@ -234,7 +234,8 @@ test('buildAnalytics applies the marketing and Bruno board rules', () => {
   // Quadro de Criação inteiro entra no escopo (execução do Bruno); meninas só no quadro delas.
   assert.equal(analytics.scopedTaskCount, 4);
   assert.deepEqual(analytics.audit.map((row) => row.title), ['Allana qualquer coluna MKT']);
-  assert.equal(analytics.brunoSummary.cardsWorked, 3);
+  // Cards apenas na fila (sem trabalho/execução) não inflam a execução do Bruno.
+  assert.equal(analytics.brunoSummary.cardsWorked, 0);
 });
 
 test('buildAnalytics filters the calculation by selected board scope', () => {

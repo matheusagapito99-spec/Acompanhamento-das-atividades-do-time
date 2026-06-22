@@ -35,19 +35,33 @@ module.exports = async function handler(req, res) {
       end: range.end,
     });
 
-    // Histórico (comentários) só para os quadros relevantes: Criação (Bruno) e Demandas de MKT (meninas).
-    // É o que permite pausar o prazo das meninas e medir a execução do Bruno.
+    // Histórico (comentários) é caro: o Runrun.it limita a 100 req/min. Buscamos comentários
+    // APENAS para os cards das meninas com prazo que tocam o período — é o que precisa do
+    // histórico para "pausar" o prazo enquanto o card esteve no quadro do Bruno. A execução do
+    // Bruno e o excedente de aprovação usam campos estruturados (sem chamadas extras).
     let historyWarnings = [];
     if (req.query.history !== 'off') {
-      const relevant = snapshot.tasks.filter((task) => {
+      const periodStart = new Date(`${range.start}T00:00:00-03:00`);
+      const periodEnd = new Date(`${range.end}T23:59:59-03:00`);
+      const touchesPeriod = (task) => {
+        const created = new Date(task.task_created_at || task.created_at || task.start_date || 0);
+        const close = task.close_date ? new Date(task.close_date) : null;
+        const createdOk = Number.isNaN(created.getTime()) ? true : created <= periodEnd;
+        const closedBeforeStart = close && !Number.isNaN(close.getTime()) ? close < periodStart : false;
+        return createdOk && !closedBeforeStart;
+      };
+      const hasDeadline = (task) => Boolean(
+        task.first_desired_date || task.desired_date || task.desired_date_with_time || task.due_date || task.estimated_delivery_date,
+      );
+      const needsHistory = snapshot.tasks.filter((task) => {
         const context = classifyBoard(task.board_name || task.board?.name, task.board_id ?? task.board?.id);
-        return context === 'bruno' || context === 'marketing';
+        return context === 'marketing' && hasDeadline(task) && touchesPeriod(task);
       });
-      const result = await attachTaskHistories(relevant, {
+      const result = await attachTaskHistories(needsHistory, {
         env: process.env,
         now: new Date().toISOString(),
-        concurrency: 6,
-        maxTasks: 160,
+        concurrency: 3,
+        maxTasks: 60,
       });
       historyWarnings = result.warnings || [];
     }

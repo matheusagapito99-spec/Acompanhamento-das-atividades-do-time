@@ -1242,6 +1242,9 @@ async function loadData(params = state.currentRequest, options = {}) {
   query.set('_', String(Date.now()));
   query.set('boardScope', state.boardScope);
   query.set('excludedTaskIdsByPerson', JSON.stringify(state.settings.excludedTaskIdsByPerson || {}));
+  // O refresh em segundo plano não busca histórico (comentários) para não estourar o
+  // limite de 100 req/min do Runrun.it; o histórico é recalculado nas cargas em primeiro plano.
+  if (options.background) query.set('history', 'off');
   if (params.start && params.end) { query.set('start', params.start); query.set('end', params.end); }
   else { query.set('preset', params.preset || state.preset); }
 
