@@ -122,30 +122,33 @@ test('buildAnalytics separates period demand, deadline status, flow metrics, and
     cycle: 'weekly',
   });
 
-  assert.equal(analytics.summary.openedCreatedInPeriod, 3);
+  // Departamento agora reflete apenas as entregas das meninas (Bruno é execução, sem entrega).
+  assert.equal(analytics.summary.openedCreatedInPeriod, 2);
   assert.equal(analytics.summary.openedCarryover, 1);
-  assert.equal(analytics.summary.opened, 4);
-  assert.equal(analytics.summary.active, 4);
-  assert.equal(analytics.summary.delivered, 3);
-  assert.equal(analytics.summary.deliveredCreatedInPeriod, 3);
+  assert.equal(analytics.summary.opened, 3);
+  assert.equal(analytics.summary.active, 3);
+  assert.equal(analytics.summary.delivered, 2);
+  assert.equal(analytics.summary.deliveredCreatedInPeriod, 2);
   assert.equal(analytics.summary.deliveredFromCarryover, 0);
-  assert.equal(analytics.summary.deliveredWithDeadline, 2);
+  assert.equal(analytics.summary.deliveredWithDeadline, 1);
   assert.equal(analytics.summary.noDeadlineDelivered, 1);
   assert.equal(analytics.summary.onTime, 1);
-  assert.equal(analytics.summary.onTimeRate, 50);
+  assert.equal(analytics.summary.onTimeRate, 100);
   assert.equal(analytics.summary.early, 1);
-  assert.equal(analytics.summary.late, 1);
+  assert.equal(analytics.summary.late, 0);
   assert.equal(analytics.summary.open, 1);
   assert.equal(analytics.summary.overdueOpen, 1);
-  assert.equal(analytics.summary.averageExecutionSeconds, 291600);
-  assert.equal(analytics.summary.throughput, 3);
+  assert.equal(analytics.summary.averageExecutionSeconds, 172800);
+  assert.equal(analytics.summary.throughput, 2);
   assert.equal(analytics.summary.dueDateBasis, 'current_deadline');
   assert.equal(analytics.comparisons[0].metrics.delivered.previous, 1);
-  assert.equal(analytics.comparisons[0].metrics.delivered.value, 3);
+  assert.equal(analytics.comparisons[0].metrics.delivered.value, 2);
   assert.equal(analytics.stageFunnel.rows.length > 0, true);
   assert.equal(analytics.stageFunnel.rows.reduce((sum, row) => sum + row.percentage, 0), 100);
   assert.equal(analytics.people.length, 4);
-  assert.equal(analytics.audit.length, 4);
+  assert.equal(analytics.audit.length, 3);
+  // Bruno aparece como execução (sem entrega no prazo).
+  assert.equal(analytics.brunoSummary.cardsWorked, 1);
 });
 
 test('buildAnalytics exposes a daily time series for trend charts', () => {
@@ -228,11 +231,10 @@ test('buildAnalytics applies the marketing and Bruno board rules', () => {
     end: '2026-06-07',
   });
 
-  assert.equal(analytics.scopedTaskCount, 2);
-  assert.deepEqual(analytics.audit.map((row) => row.title).sort(), [
-    'Allana qualquer coluna MKT',
-    'Fila Bruno',
-  ]);
+  // Quadro de Criação inteiro entra no escopo (execução do Bruno); meninas só no quadro delas.
+  assert.equal(analytics.scopedTaskCount, 4);
+  assert.deepEqual(analytics.audit.map((row) => row.title), ['Allana qualquer coluna MKT']);
+  assert.equal(analytics.brunoSummary.cardsWorked, 3);
 });
 
 test('buildAnalytics filters the calculation by selected board scope', () => {
@@ -260,8 +262,10 @@ test('buildAnalytics filters the calculation by selected board scope', () => {
   });
 
   assert.equal(creationAnalytics.scope.boardScope, 'creation');
-  assert.equal(creationAnalytics.summary.delivered, 1);
-  assert.deepEqual(creationAnalytics.audit.map((row) => row.title), ['Campanha atrasada']);
+  // No escopo de Criação não há entregas das meninas; o card do Bruno entra na execução dele.
+  assert.equal(creationAnalytics.summary.delivered, 0);
+  assert.equal(creationAnalytics.brunoSummary.cardsWorked, 1);
+  assert.equal(creationAnalytics.audit.length, 0);
 });
 
 test('buildAnalytics lets managers exclude individual cards from productivity calculations', () => {
@@ -280,7 +284,7 @@ test('buildAnalytics lets managers exclude individual cards from productivity ca
 
   assert.equal(allana.summary.delivered, 0);
   assert.equal(bruno.summary.delivered, 1);
-  assert.equal(analytics.summary.delivered, 2);
+  assert.equal(analytics.summary.delivered, 1);
   assert.equal(analytics.audit.some((row) => row.id === 1), false);
   assert.equal(allanaSelection.cards.find((card) => card.id === 1).included, false);
   assert.equal(analytics.scope.excludedTaskIdsByPerson.Allana[0], '1');

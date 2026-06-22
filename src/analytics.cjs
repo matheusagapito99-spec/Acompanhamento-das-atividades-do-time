@@ -1,15 +1,21 @@
+const { classifyBoard } = require('./history.cjs');
+
 const DAY_SECONDS = 86400;
 const DAY_MS = DAY_SECONDS * 1000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
 const CURRENT_DEADLINE_BASIS = 'current_deadline';
 const PRODUCTIVITY_IMPACT_LIMIT = 8;
 
+// Pesos do score do departamento: confiabilidade das meninas + eficiência do Bruno.
+const GIRLS_SCORE_WEIGHT = 0.8;
+const BRUNO_SCORE_WEIGHT = 0.2;
+
 const MARKETING_BOARD_ALIASES = ['Demandas MKT', 'Demandas de MKT', 'Demandas de Marketing'];
-const CREATION_BOARD_ALIASES = ['Criacao', 'Criação'];
+const CREATION_BOARD_ALIASES = ['Demandas de MKT (Criacao)', 'Demandas de MKT (Criação)', 'Criacao', 'Criação'];
 const BOARD_SCOPE_LABELS = {
   all: 'Todos',
-  marketing: 'Demandas MKT',
-  creation: 'Criacao',
+  marketing: 'Demandas de MKT',
+  creation: 'Demandas de MKT (Criação)',
 };
 const BRUNO_STAGE_ALIASES = [
   'Filas de demandas',
@@ -326,53 +332,65 @@ function getTaskId(task) {
   return task.id ?? task.task_id ?? task.taskId ?? '';
 }
 
-function isMarketingBoard(boardName) {
-  return matchesAny(boardName, MARKETING_BOARD_ALIASES);
+function getBoardId(task) {
+  return task.board_id ?? task.board?.id ?? task.kanban_id ?? null;
 }
 
-function isCreationBoard(boardName) {
-  return matchesAny(boardName, CREATION_BOARD_ALIASES);
+// "bruno" (quadro de criação), "marketing" (quadro das meninas) ou "other".
+function getBoardContext(task) {
+  return classifyBoard(getBoardName(task), getBoardId(task));
+}
+
+function isMarketingBoard(task) {
+  return getBoardContext(task) === 'marketing';
+}
+
+function isCreationBoard(task) {
+  return getBoardContext(task) === 'bruno';
+}
+
+function isGirl(collaborator) {
+  return MARKETING_COLLABORATORS.some((name) => matchesConfiguredName(collaborator || '', name));
+}
+
+function isBruno(collaborator) {
+  return matchesConfiguredName(collaborator || '', 'Bruno');
 }
 
 function normalizeBoardScope(value) {
   const normalized = normalizeName(value || 'all');
   if (!normalized || normalized === 'all' || normalized === 'todos') return 'all';
-  if (normalized.includes('mkt') || normalized.includes('marketing')) return 'marketing';
   if (normalized.includes('criacao') || normalized.includes('creation')) return 'creation';
+  if (normalized.includes('mkt') || normalized.includes('marketing')) return 'marketing';
   return 'all';
 }
 
 function taskMatchesBoardScope(task, boardScope) {
   const scope = normalizeBoardScope(boardScope);
   if (scope === 'all') return true;
-  const boardName = getBoardName(task);
-  if (scope === 'marketing') return isMarketingBoard(boardName);
-  if (scope === 'creation') return isCreationBoard(boardName);
+  const context = getBoardContext(task);
+  if (scope === 'marketing') return context === 'marketing';
+  if (scope === 'creation') return context === 'bruno';
   return true;
 }
 
 function isScopedTask(task, options = {}) {
   const collaborators = options.collaborators || [];
-  const collaborator = findConfiguredName(task, collaborators);
-  if (!collaborator) return false;
-
-  const boardName = getBoardName(task);
-  const stageName = getStageName(task);
-  const collaboratorKey = compactName(collaborator);
   const boardScope = normalizeBoardScope(options.boardScope);
-
+  const context = getBoardContext(task);
+  if (context === 'other') return false;
   if (!taskMatchesBoardScope(task, boardScope)) return false;
 
-  if (matchesConfiguredName(collaboratorKey, 'Bruno')) {
-    return isCreationBoard(boardName) && matchesAny(stageName, BRUNO_STAGE_ALIASES);
+  // Quadro do Bruno (Criação): toda a execução conta, independente de quem está alocado.
+  if (context === 'bruno') return true;
+
+  // Quadro das meninas: só conta quando atribuída a uma das colaboradoras de marketing.
+  if (context === 'marketing') {
+    const collaborator = findConfiguredName(task, collaborators);
+    return isGirl(collaborator);
   }
 
-  if (MARKETING_COLLABORATORS.some((name) => matchesConfiguredName(collaborator, name))) {
-    return isMarketingBoard(boardName);
-  }
-
-  const configuredBoards = options.boards || [];
-  return configuredBoards.some((board) => matchesConfiguredText(boardName, board));
+  return false;
 }
 
 function inPeriod(date, start, end) {
@@ -402,7 +420,14 @@ function normalizePeriod(options = {}) {
 function buildTaskFlags(task, period) {
   const createdDate = getCreatedDate(task);
   const closeDate = getCloseDate(task);
-  const dueDate = getDueDate(task);
+  // O prazo das meninas "pausa" enquanto o card está no quadro do Bruno:
+  // estendemos o prazo pelo tempo pausado reconstruído do histórico (exclui o
+  // excedente de aprovação, que continua sendo responsabilidade delas).
+  const dueDateRaw = getDueDate(task);
+  const pausedSeconds = Number(task.history?.pausedSeconds || 0);
+  const dueDate = dueDateRaw && pausedSeconds
+    ? new Date(dueDateRaw.getTime() + pausedSeconds * 1000)
+    : dueDateRaw;
   const closed = isClosed(task);
   const createdBeforeEnd = Boolean(createdDate && createdDate <= period.end);
   const closedBeforeStart = Boolean(closeDate && closeDate < period.start);
@@ -798,8 +823,8 @@ const COMPARISON_METRICS = [
   'flowEfficiency',
 ];
 
-function buildMetricComparison(current, previous) {
-  return COMPARISON_METRICS.reduce((acc, key) => {
+function buildMetricComparison(current, previous, keys = COMPARISON_METRICS) {
+  return keys.reduce((acc, key) => {
     const value = Number(current[key] || 0);
     const previousValue = Number(previous[key] || 0);
     const change = value - previousValue;
@@ -817,17 +842,19 @@ function buildMetricComparison(current, previous) {
   }, {});
 }
 
-function buildComparison(tasks, period, settingsInput = {}) {
+function buildComparison(tasks, period, settingsInput = {}, options = {}) {
   const previous = previousPeriod(period);
-  const currentSummary = summarizeTasks(tasks, period, settingsInput);
-  const previousSummary = summarizeTasks(tasks, previous, settingsInput);
+  const summarizer = options.summarizer || ((list, range) => summarizeTasks(list, range, settingsInput));
+  const keys = options.keys || COMPARISON_METRICS;
+  const currentSummary = summarizer(tasks, period);
+  const previousSummary = summarizer(tasks, previous);
   return {
     label: previous.label,
     range: {
       start: previous.startKey,
       end: previous.endKey,
     },
-    metrics: buildMetricComparison(currentSummary, previousSummary),
+    metrics: buildMetricComparison(currentSummary, previousSummary, keys),
   };
 }
 
@@ -1096,6 +1123,82 @@ function buildAlerts(audit, summary) {
   return alerts.slice(0, 16);
 }
 
+const BRUNO_COMPARISON_METRICS = ['productivityScore', 'efficiency', 'throughput', 'cardsWorked', 'executionSeconds', 'workedSeconds', 'averageExecutionSeconds'];
+
+function getBrunoExecutionSeconds(task) {
+  const fromHistory = Number(task.history?.brunoExecutionSeconds || 0);
+  return fromHistory > 0 ? fromHistory : getWorkedSeconds(task);
+}
+
+function summarizeBruno(tasks = [], period) {
+  let cardsWorked = 0;
+  let executionSeconds = 0;
+  let workedSeconds = 0;
+  let estimatedSeconds = 0;
+  let overEstimate = 0;
+  let aging = 0;
+
+  for (const task of tasks) {
+    const flags = buildTaskFlags(task, period);
+    if (!flags.active && !flags.delivered) continue;
+    cardsWorked += 1;
+    const exec = getBrunoExecutionSeconds(task);
+    const estimate = getEstimateSeconds(task);
+    executionSeconds += exec;
+    workedSeconds += getWorkedSeconds(task);
+    estimatedSeconds += estimate;
+    if (estimate > 0 && exec > estimate) overEstimate += 1;
+    if (estimate > 0 && exec > 2 * estimate) aging += 1;
+  }
+
+  const efficiency = (estimatedSeconds > 0 && executionSeconds > 0)
+    ? clampNumber(Math.round((estimatedSeconds / executionSeconds) * 100), 0, 100)
+    : (executionSeconds > 0 ? 60 : 0);
+  const averageExecutionSeconds = cardsWorked ? Math.round(executionSeconds / cardsWorked) : 0;
+
+  return {
+    role: 'execution',
+    cardsWorked,
+    throughput: cardsWorked,
+    executionSeconds,
+    workedSeconds,
+    estimatedSeconds,
+    averageExecutionSeconds,
+    overEstimate,
+    aging,
+    efficiency,
+    productivityScore: efficiency,
+    // Campos neutros mantidos para compatibilidade com renderizações genéricas:
+    delivered: cardsWorked,
+    deliveredWithDeadline: 0,
+    onTime: 0,
+    onTimeRate: efficiency,
+    late: 0,
+    overdueOpen: 0,
+    open: 0,
+    active: cardsWorked,
+    periodDays: daysBetween(period.startKey, period.endKey) + 1,
+  };
+}
+
+function buildApprovalExcessAlerts(tasks, collaborators) {
+  const alerts = [];
+  for (const task of tasks) {
+    const excess = Number(task.history?.approvalExcessSeconds || 0);
+    if (excess <= 0) continue;
+    const collaborator = findConfiguredName(task, collaborators) || getAssigneeName(task) || 'Departamento';
+    alerts.push({
+      severity: excess > DAY_SECONDS ? 'high' : 'medium',
+      title: 'Aprovação parada além de 1 dia',
+      detail: `${task.title || task.name || 'Tarefa'} está há ${roundDecimal(excess / DAY_SECONDS + 1, 1)}d na coluna Aprovação; ${roundDecimal(excess / DAY_SECONDS, 1)}d além do limite contam como prazo de ${collaborator}.`,
+      assignee: collaborator,
+      action: 'Aprovar ou devolver a arte para liberar o fluxo.',
+      taskId: task.id ?? task.task_id ?? '',
+    });
+  }
+  return alerts;
+}
+
 function buildAnalytics(rawTasks = [], options = {}) {
   const collaborators = options.collaborators || [];
   const period = normalizePeriod(options);
@@ -1107,17 +1210,50 @@ function buildAnalytics(rawTasks = [], options = {}) {
   const productivityTasks = scopedTasks.filter((task) => {
     return !isTaskExcludedFromProductivity(task, collaborators, excludedTaskIdsByPerson);
   });
+
+  // Meninas (donas da entrega, prazo) x Bruno (execução, sem entrega).
+  const girlTasks = productivityTasks.filter((task) => getBoardContext(task) === 'marketing');
+  const brunoTasks = productivityTasks.filter((task) => getBoardContext(task) === 'bruno');
+
   const cardSelection = buildCardSelection(scopedTasks, period, collaborators, excludedTaskIdsByPerson, productivitySettings);
-  const summary = summarizeTasks(productivityTasks, period, productivitySettings);
-  const audit = buildAudit(productivityTasks, period, collaborators, productivitySettings);
+
+  const summary = summarizeTasks(girlTasks, period, productivitySettings);
+  const brunoSummary = summarizeBruno(brunoTasks, period);
+  const girlsScore = summary.productivityScore;
+  const blendedScore = brunoTasks.length
+    ? (girlTasks.length
+      ? roundPercent(GIRLS_SCORE_WEIGHT * girlsScore + BRUNO_SCORE_WEIGHT * brunoSummary.productivityScore)
+      : brunoSummary.productivityScore)
+    : girlsScore;
+  summary.girlsScore = girlsScore;
+  summary.brunoScore = brunoSummary.productivityScore;
+  summary.productivityScore = blendedScore;
+
+  const audit = buildAudit(girlTasks, period, collaborators, productivitySettings);
 
   const people = collaborators.map((name) => {
-    const personTasks = productivityTasks.filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name));
-    const personSummary = summarizeTasks(personTasks, period, productivitySettings);
+    if (isBruno(name)) {
+      const personSummary = summarizeBruno(brunoTasks, period);
+      return {
+        name,
+        role: 'execution',
+        summary: personSummary,
+        comparison: buildComparison(brunoTasks, period, productivitySettings, {
+          summarizer: (list, range) => summarizeBruno(list, range),
+          keys: BRUNO_COMPARISON_METRICS,
+        }),
+        breakdowns: buildBreakdowns(brunoTasks, period),
+        stageFunnel: buildStageFunnel(brunoTasks, period),
+        productivityImpacts: [],
+        dailySeries: buildDailySeries(brunoTasks, period),
+      };
+    }
+    const personTasks = girlTasks.filter((task) => matchesConfiguredName(findConfiguredName(task, collaborators), name));
     const personAudit = buildAudit(personTasks, period, collaborators, productivitySettings);
     return {
       name,
-      summary: personSummary,
+      role: 'delivery',
+      summary: summarizeTasks(personTasks, period, productivitySettings),
       comparison: buildComparison(personTasks, period, productivitySettings),
       breakdowns: buildBreakdowns(personTasks, period),
       stageFunnel: buildStageFunnel(personTasks, period),
@@ -1125,6 +1261,8 @@ function buildAnalytics(rawTasks = [], options = {}) {
       dailySeries: buildDailySeries(personTasks, period),
     };
   });
+
+  const alerts = [...buildApprovalExcessAlerts(brunoTasks, collaborators), ...buildAlerts(audit, summary)].slice(0, 18);
 
   return {
     period: {
@@ -1138,8 +1276,8 @@ function buildAnalytics(rawTasks = [], options = {}) {
       boardScopeLabel: BOARD_SCOPE_LABELS[boardScope],
       excludedTaskIdsByPerson,
       rules: {
-        marketing: 'Allana, Bruna e Beatriz: todas as colunas de Demandas MKT / Demandas de Marketing.',
-        bruno: 'Bruno: apenas Criacao nas etapas Filas de demandas, Fazendo Bruno, Aprovacao de texto ou arte e Entregue.',
+        marketing: 'Allana, Bruna e Beatriz: tarefas no quadro Demandas de MKT. O prazo pausa enquanto o card está no quadro de Criação; o tempo além de 1 dia na coluna Aprovação volta a contar para elas.',
+        bruno: 'Bruno: execução no quadro Demandas de MKT (Criação). Sem entrega; mede-se a duração da atribuição e a eficiência frente à estimativa.',
       },
     },
     rawTaskCount: rawTasks.length,
@@ -1147,15 +1285,16 @@ function buildAnalytics(rawTasks = [], options = {}) {
     scopedTaskCount: scopedTasks.length,
     productivityTaskCount: productivityTasks.length,
     summary,
+    brunoSummary,
     people,
-    comparisons: [buildComparison(productivityTasks, period, productivitySettings)],
-    breakdowns: buildBreakdowns(productivityTasks, period),
-    dailySeries: buildDailySeries(productivityTasks, period),
-    stageFunnel: buildStageFunnel(productivityTasks, period),
+    comparisons: [buildComparison(girlTasks, period, productivitySettings)],
+    breakdowns: buildBreakdowns(girlTasks, period),
+    dailySeries: buildDailySeries(girlTasks, period),
+    stageFunnel: buildStageFunnel(girlTasks, period),
     productivitySettings,
     productivityImpacts: buildProductivityImpacts(audit),
     cardSelection,
-    alerts: buildAlerts(audit, summary),
+    alerts,
     audit,
   };
 }
@@ -1163,6 +1302,8 @@ function buildAnalytics(rawTasks = [], options = {}) {
 module.exports = {
   buildAnalytics,
   buildDailySeries,
+  summarizeBruno,
+  getBoardContext,
   buildTaskFlags,
   expandTaskAssignments,
   getPresetRange,

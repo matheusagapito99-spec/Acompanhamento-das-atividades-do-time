@@ -190,14 +190,84 @@ function getDashboardConfig(env = process.env) {
   return { collaborators, boards };
 }
 
+function extractCommentList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.comments)) return payload.comments;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+async function fetchTaskComments(taskId, options = {}) {
+  const limit = Number(options.limit || 100);
+  const maxPages = Number(options.maxPages || 4);
+  const comments = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const payload = await runrunRequest(`/tasks/${taskId}/comments${toQuery({ limit, page })}`, options);
+    const pageComments = extractCommentList(payload);
+    comments.push(...pageComments);
+    if (pageComments.length < limit) break;
+  }
+  return comments;
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = new Array(Math.min(limit, items.length || 0)).fill(null).map(async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+/**
+ * Anexa `task.history` (parseado dos comentários) às tarefas informadas.
+ * Falhas por tarefa são silenciosas (a tarefa segue sem histórico, com fallback no cálculo).
+ */
+async function attachTaskHistories(tasks = [], options = {}) {
+  const { parseTaskHistory } = require('./history.cjs');
+  const now = options.now || new Date().toISOString();
+  const concurrency = Number(options.concurrency || 6);
+  const maxTasks = Number(options.maxTasks || 150);
+  const target = tasks.slice(0, maxTasks);
+  const warnings = [];
+
+  await mapWithConcurrency(target, concurrency, async (task) => {
+    const id = task.id ?? task.task_id ?? task.taskId;
+    if (!id) return null;
+    try {
+      const comments = await fetchTaskComments(id, options);
+      task.history = parseTaskHistory(comments, {
+        now,
+        currentBoardName: task.board_name || task.board?.name,
+        currentBoardId: task.board_id ?? task.board?.id,
+        currentStageName: task.board_stage_name || task.stage_name || task.column_name,
+        lastActivityAt: task.last_activity_at || task.updated_at || task.last_modified_at || task.modified_at,
+      });
+    } catch (error) {
+      warnings.push(`Comentários da tarefa ${id}: ${sanitizeApiError(error.message, options.env)}`);
+    }
+    return null;
+  });
+
+  return { warnings };
+}
+
 module.exports = {
   API_BASE,
   DEFAULT_BOARDS,
   DEFAULT_COLLABORATORS,
   assertCredentials,
+  attachTaskHistories,
   buildRunrunHeaders,
   extractTaskList,
   fetchRunrunSnapshot,
+  fetchTaskComments,
   fetchTaskPages,
   getDashboardConfig,
   runrunRequest,

@@ -601,23 +601,21 @@ function renderInsights() {
 function renderProductivityDonut() {
   if (!els.productivityDonut) return;
   const summary = state.data.summary || {};
-  const breakdown = summary.productivityBreakdown || {};
-  const colors = { deadlineReliability: TONE_COLORS.primary, backlogHealth: TONE_COLORS.positive, delaySeverity: TONE_COLORS.warning };
-  const segments = Object.entries(breakdown).map(([key, item]) => ({
-    label: item.label,
-    value: (item.value * item.weight) / 100,
-    display: `${formatPercent(item.value)}`,
-    color: colors[key] || TONE_COLORS.muted,
-  }));
-  const score = summary.productivityScore || 0;
-  const remainder = Math.max(0, 100 - score);
-  const donut = donutChart([...segments, { label: 'Margem', value: remainder, display: '', color: 'transparent' }], formatPercent(score), 'produtividade');
-  const legend = legendHtml(Object.entries(breakdown).map(([key, item]) => ({
-    label: `${item.label} (${item.weight}%)`,
-    display: formatPercent(item.value),
-    color: colors[key] || TONE_COLORS.muted,
-  })));
-  els.productivityDonut.innerHTML = `<div class="donut-host">${donut}</div>${legend}`;
+  const girls = Number(summary.girlsScore ?? summary.productivityScore ?? 0);
+  const bruno = Number(summary.brunoScore ?? 0);
+  const blended = Number(summary.productivityScore ?? girls);
+  const hasBruno = (state.data.brunoSummary?.cardsWorked || 0) > 0;
+
+  const segments = [
+    { label: 'Meninas (prazo)', value: hasBruno ? girls * 0.8 : girls, display: formatPercent(girls), color: TONE_COLORS.primary },
+  ];
+  if (hasBruno) segments.push({ label: 'Bruno (execução)', value: bruno * 0.2, display: formatPercent(bruno), color: TONE_COLORS.positive });
+  segments.push({ label: 'Margem', value: Math.max(0, 100 - blended), display: '', color: 'transparent' });
+
+  const donut = donutChart(segments, formatPercent(blended), 'produtividade');
+  const legendItems = [{ label: 'Meninas · confiabilidade de prazo', display: formatPercent(girls), color: TONE_COLORS.primary }];
+  if (hasBruno) legendItems.push({ label: 'Bruno · eficiência de execução', display: formatPercent(bruno), color: TONE_COLORS.positive });
+  els.productivityDonut.innerHTML = `<div class="donut-host">${donut}</div>${legendHtml(legendItems)}`;
 }
 
 function deliveryCompositionSegments(summary) {
@@ -720,31 +718,71 @@ function renderImpactList(rows = []) {
 
 /* ------------------------------------------------------------- people view */
 
+function isExecutionPerson(person) {
+  return person?.role === 'execution' || person?.summary?.role === 'execution';
+}
+
 function renderPeopleCards() {
   if (!els.peopleSummary) return;
   const people = state.data.people || [];
   els.peopleSummary.innerHTML = people.map((person) => {
     const s = person.summary;
-    const tone = s.productivityScore >= 70 ? 'positive' : s.productivityScore >= 50 ? 'warning' : 'negative';
+    const score = s.productivityScore || 0;
+    const tone = score >= 70 ? 'positive' : score >= 50 ? 'warning' : 'negative';
     const delta = renderDeltaPill(METRIC_BY_KEY.productivityScore, person.comparison?.metrics?.productivityScore);
-    const spark = sparkline((person.dailySeries || []).map((d) => d.delivered), TONE_COLORS.positive);
     const isActive = person.name === state.selectedPerson;
+    const exec = isExecutionPerson(person);
+    const spark = sparkline((person.dailySeries || []).map((d) => (exec ? d.wip : d.delivered)), exec ? TONE_COLORS.primary : TONE_COLORS.positive);
+    const tag = exec ? '<span class="role-tag">execução</span>' : '';
+    const stats = exec
+      ? `<span>${formatNumber(s.cardsWorked)} cards</span>
+         <span>${formatSeconds(s.executionSeconds)} execução</span>
+         <span class="${s.aging ? 'danger' : ''}">${formatNumber(s.aging)} aging</span>`
+      : `<span>${formatNumber(s.delivered)} entregues</span>
+         <span>${formatPercent(s.onTimeRate)} no prazo</span>
+         <span class="${s.overdueOpen ? 'danger' : ''}">${formatNumber(s.overdueOpen)} vencidas</span>`;
     return `
       <button class="person-card ${isActive ? 'selected' : ''}" type="button" data-person-card="${escapeHtml(person.name)}">
         <div class="person-card-top">
-          ${miniRing(s.productivityScore, tone)}
+          ${miniRing(score, tone)}
           <div class="person-card-id">
-            <strong>${escapeHtml(person.name)}</strong>
-            <span>${delta || '<span class="delta-pill neutral">= estável</span>'}</span>
+            <strong>${escapeHtml(person.name)} ${tag}</strong>
+            <span>${exec ? 'eficiência' : ''} ${delta || '<span class="delta-pill neutral">= estável</span>'}</span>
           </div>
         </div>
         <div class="person-card-spark">${spark}</div>
-        <div class="mini-stats">
-          <span>${formatNumber(s.delivered)} entregues</span>
-          <span>${formatPercent(s.onTimeRate)} no prazo</span>
-          <span class="${s.overdueOpen ? 'danger' : ''}">${formatNumber(s.overdueOpen)} vencidas</span>
-        </div>
+        <div class="mini-stats">${stats}</div>
       </button>`;
+  }).join('');
+}
+
+const BRUNO_METRIC_CARDS = [
+  { key: 'productivityScore', label: 'Eficiência', type: 'percent', help: 'Eficiência de execução = estimativa do card ÷ tempo de execução (atribuição). 100% quando entrega dentro da estimativa.', tone: (s) => (s.efficiency >= 70 ? 'positive' : s.efficiency >= 50 ? 'warning' : 'negative') },
+  { key: 'cardsWorked', label: 'Cards trabalhados', type: 'number', help: 'Quantidade de cards do quadro de Criação que o Bruno tocou no período.' },
+  { key: 'averageExecutionSeconds', label: 'Tempo médio/card', type: 'seconds', help: 'Duração média de atribuição por card (tempo de execução).' },
+  { key: 'executionSeconds', label: 'Execução total', type: 'seconds', help: 'Soma da duração das atribuições do Bruno no período.' },
+  { key: 'workedSeconds', label: 'Tempo apontado', type: 'seconds', help: 'Horas lançadas pelo Bruno no Runrun.it.' },
+  { key: 'aging', label: 'Aging', type: 'number', help: 'Cards cujo tempo de execução passou de 2x a estimativa (risco de gargalo).', tone: (s) => (s.aging ? 'negative' : 'positive') },
+];
+
+function renderBrunoMetrics(container, summary, comparison) {
+  if (!container) return;
+  container.innerHTML = BRUNO_METRIC_CARDS.map((def) => {
+    const value = summary[def.key === 'productivityScore' ? 'efficiency' : def.key] ?? summary[def.key];
+    const tone = def.tone ? def.tone(summary) : '';
+    const item = comparison?.metrics?.[def.key];
+    return `
+      <article class="metric-card ${tone}">
+        <div class="metric-top">
+          <span>${escapeHtml(def.label)}</span>
+          <button class="metric-help" type="button" aria-label="Como calculamos ${escapeHtml(def.label)}" data-help="${escapeHtml(def.help)}">?</button>
+        </div>
+        <div class="metric-value-row">
+          <strong>${formatMetricValue(def, value)}</strong>
+          ${renderDeltaPill({ polarity: def.key === 'aging' ? 'lower' : 'higher' }, item)}
+        </div>
+        <small>${def.key === 'productivityScore' ? `${formatNumber(summary.overEstimate)} card(s) acima da estimativa` : 'Execução no quadro de Criação'}</small>
+      </article>`;
   }).join('');
 }
 
@@ -759,17 +797,39 @@ function renderIndividual() {
   if (!person) return;
 
   if (els.individualTitle) els.individualTitle.textContent = person.name;
-  renderMetrics(els.individualMetrics, person.summary, person.comparison,
-    ['productivityScore', 'delivered', 'onTimeRate', 'late', 'overdueOpen', 'throughput']);
+  const exec = isExecutionPerson(person);
+
+  if (exec) {
+    renderBrunoMetrics(els.individualMetrics, person.summary, person.comparison);
+  } else {
+    renderMetrics(els.individualMetrics, person.summary, person.comparison,
+      ['productivityScore', 'delivered', 'onTimeRate', 'late', 'overdueOpen', 'throughput']);
+  }
 
   if (els.individualTrend) {
-    els.individualTrend.innerHTML = lineAreaChart(person.dailySeries || [], [
-      { key: 'delivered', label: 'Entregues', color: TONE_COLORS.positive, fill: `${TONE_COLORS.positive}1f` },
-      { key: 'opened', label: 'Abertas', color: TONE_COLORS.primary },
-    ]);
+    els.individualTrend.innerHTML = exec
+      ? lineAreaChart(person.dailySeries || [], [{ key: 'wip', label: 'WIP', color: TONE_COLORS.primary, fill: `${TONE_COLORS.primary}1f` }])
+      : lineAreaChart(person.dailySeries || [], [
+        { key: 'delivered', label: 'Entregues', color: TONE_COLORS.positive, fill: `${TONE_COLORS.positive}1f` },
+        { key: 'opened', label: 'Abertas', color: TONE_COLORS.primary },
+      ]);
   }
-  renderDeliveryComposition(els.individualOnTime, person.summary);
-  if (els.individualImpact) els.individualImpact.innerHTML = renderImpactList(person.productivityImpacts || []);
+
+  if (exec) {
+    const eff = person.summary.efficiency || 0;
+    const tone = eff >= 70 ? 'positive' : eff >= 50 ? 'warning' : 'negative';
+    if (els.individualOnTime) {
+      els.individualOnTime.innerHTML = `<div class="donut-host">${miniRing(eff, tone)}</div><p class="panel-note" style="text-align:center">Eficiência de execução · ${formatNumber(person.summary.overEstimate)} card(s) acima da estimativa</p>`;
+    }
+    if (els.individualImpact) {
+      els.individualImpact.innerHTML = person.summary.aging
+        ? `<p class="empty">${formatNumber(person.summary.aging)} card(s) com tempo de execução acima de 2x a estimativa — possíveis gargalos.</p>`
+        : '<p class="empty">Nenhum card em aging: execução dentro do esperado.</p>';
+    }
+  } else {
+    renderDeliveryComposition(els.individualOnTime, person.summary);
+    if (els.individualImpact) els.individualImpact.innerHTML = renderImpactList(person.productivityImpacts || []);
+  }
 
   if (els.individualBreakdowns) {
     els.individualBreakdowns.innerHTML = [

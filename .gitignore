@@ -9,3 +9,5 @@ dist/
 coverage/
 preview-server.cjs
 .claude/
+.vercel
+.env*

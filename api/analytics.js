@@ -1,6 +1,8 @@
 const { buildAnalytics, getPresetRange } = require('../src/analytics.cjs');
+const { classifyBoard } = require('../src/history.cjs');
 const {
   fetchRunrunSnapshot,
+  attachTaskHistories,
   getDashboardConfig,
   sanitizeApiError,
 } = require('../src/runrunit.cjs');
@@ -32,6 +34,24 @@ module.exports = async function handler(req, res) {
       start: range.start,
       end: range.end,
     });
+
+    // Histórico (comentários) só para os quadros relevantes: Criação (Bruno) e Demandas de MKT (meninas).
+    // É o que permite pausar o prazo das meninas e medir a execução do Bruno.
+    let historyWarnings = [];
+    if (req.query.history !== 'off') {
+      const relevant = snapshot.tasks.filter((task) => {
+        const context = classifyBoard(task.board_name || task.board?.name, task.board_id ?? task.board?.id);
+        return context === 'bruno' || context === 'marketing';
+      });
+      const result = await attachTaskHistories(relevant, {
+        env: process.env,
+        now: new Date().toISOString(),
+        concurrency: 6,
+        maxTasks: 160,
+      });
+      historyWarnings = result.warnings || [];
+    }
+
     const analytics = buildAnalytics(snapshot.tasks, {
       ...config,
       start: range.start,
@@ -52,7 +72,7 @@ module.exports = async function handler(req, res) {
         scopedTaskCount: analytics.scopedTaskCount,
         userCount: snapshot.users.length,
         boardCount: snapshot.boards.length,
-        warnings: snapshot.sourceWarnings,
+        warnings: [...snapshot.sourceWarnings, ...historyWarnings],
       },
     });
   } catch (error) {
