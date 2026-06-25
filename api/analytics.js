@@ -6,6 +6,7 @@ const {
   getDashboardConfig,
   sanitizeApiError,
 } = require('../src/runrunit.cjs');
+const { requireAuth } = require('../src/auth.cjs');
 
 function sendJson(res, status, payload) {
   res.status(status).json(payload);
@@ -19,6 +20,9 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'GET');
     return sendJson(res, 405, { ok: false, error: 'Metodo nao permitido.' });
   }
+
+  const auth = await requireAuth(req, process.env);
+  if (!auth.ok) return sendJson(res, 401, { ok: false, error: 'Faca login para acessar.' });
 
   try {
     const config = getDashboardConfig(process.env);

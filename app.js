@@ -147,6 +147,7 @@ const els = {};
   'includeAllCards', 'reportFrom', 'testReportPerson', 'testReportRecipient', 'reportSubjectTemplate',
   'reportBodyTemplate', 'resetReportTemplate', 'templateVariableList', 'sendTestReport', 'testReportStatus',
   'sendWeeklyNow', 'sendNowConfirm', 'sendNowCancel', 'sendNowConfirmBtn', 'sendNowStatus',
+  'authGate', 'authGateMsg', 'sidebarUser', 'userLabel',
 ].forEach((id) => { els[id] = document.getElementById(id); });
 
 /* ------------------------------------------------------------- formatters */
@@ -1387,5 +1388,42 @@ if (els.sendWeeklyNow) els.sendWeeklyNow.addEventListener('click', () => { els.s
 if (els.sendNowCancel) els.sendNowCancel.addEventListener('click', () => { els.sendNowConfirm?.classList.add('hidden'); });
 if (els.sendNowConfirmBtn) els.sendNowConfirmBtn.addEventListener('click', runWeeklyReportNow);
 
+function startApp() {
+  loadData();
+}
+
+function showUser(user) {
+  if (!user) return;
+  if (els.userLabel) els.userLabel.textContent = user.name || user.email || '';
+  els.sidebarUser?.classList.remove('hidden');
+}
+
+function showAuthGate() {
+  const search = (typeof location !== 'undefined' && location.search) || '';
+  const reason = new URLSearchParams(search).get('auth');
+  if (reason && els.authGateMsg) {
+    els.authGateMsg.textContent = reason === 'dominio'
+      ? 'Use uma conta @avalyst.com.br para entrar.'
+      : 'Não foi possível entrar. Tente novamente.';
+    els.authGateMsg.classList.remove('hidden');
+  }
+  els.authGate?.classList.remove('hidden');
+}
+
+async function ensureAuth() {
+  try {
+    const response = await fetch('/api/auth/me', { cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.authenticated) {
+      if (!payload.open && payload.user) showUser(payload.user);
+      startApp();
+      return;
+    }
+  } catch (error) {
+    // sem conexão com o endpoint de auth — mostra o gate
+  }
+  showAuthGate();
+}
+
 setActiveTab(state.activeTab);
-loadData();
+ensureAuth();

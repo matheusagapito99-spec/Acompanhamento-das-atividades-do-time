@@ -48,6 +48,10 @@
             <span aria-hidden="true">&#9881;</span>
             <strong>Configurações</strong>
           </button>
+          <div class="sidebar-user hidden" id="sidebarUser">
+            <span class="sidebar-user-name" id="userLabel"></span>
+            <a class="logout-link" id="logoutLink" href="/api/auth/logout">Sair</a>
+          </div>
         </div>
       </aside>
 
@@ -387,6 +391,16 @@
             <div class="automation-status" id="sendNowStatus"></div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="auth-gate hidden" id="authGate">
+      <div class="auth-card">
+        <div class="brand-mark">M</div>
+        <h1>Marketing Analytics</h1>
+        <p>Acesso restrito ao time. Entre com sua conta <strong>@avalyst.com.br</strong>.</p>
+        <p class="auth-error hidden" id="authGateMsg"></p>
+        <a class="primary-button" id="loginButton" href="/api/auth/login">Entrar com Google</a>
       </div>
     </div>
 
