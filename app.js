@@ -147,7 +147,7 @@ const els = {};
   'includeAllCards', 'reportFrom', 'testReportPerson', 'testReportRecipient', 'reportSubjectTemplate',
   'reportBodyTemplate', 'resetReportTemplate', 'templateVariableList', 'sendTestReport', 'testReportStatus',
   'sendWeeklyNow', 'sendNowConfirm', 'sendNowCancel', 'sendNowConfirmBtn', 'sendNowStatus',
-  'authGate', 'authGateMsg', 'sidebarUser', 'userLabel',
+  'authGate', 'authGateMsg', 'sidebarUser', 'userLabel', 'themeToggle',
 ].forEach((id) => { els[id] = document.getElementById(id); });
 
 /* ------------------------------------------------------------- formatters */
@@ -481,6 +481,10 @@ function startAutoRefresh() {
   if (!state.nextRefreshAt) scheduleNextRefresh();
   if (state.refreshTimer) return;
   state.refreshTimer = window.setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      updateRefreshCountdown('Pausado (aba em segundo plano)');
+      return;
+    }
     if (!state.nextRefreshAt) scheduleNextRefresh();
     if (Date.now() >= state.nextRefreshAt) {
       state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
@@ -1424,6 +1428,31 @@ async function ensureAuth() {
   }
   showAuthGate();
 }
+
+const THEME_KEY = 'mkt-theme';
+
+function applyTheme(theme) {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  document.documentElement.dataset.theme = theme;
+  if (els.themeToggle) els.themeToggle.textContent = theme === 'dark' ? '☀' : '◐';
+}
+
+function initTheme() {
+  let stored = null;
+  try { stored = window.localStorage?.getItem(THEME_KEY); } catch (error) { /* noop */ }
+  const prefersDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light'));
+}
+
+function toggleTheme() {
+  const current = (typeof document !== 'undefined' && document.documentElement?.dataset.theme) || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { window.localStorage?.setItem(THEME_KEY, next); } catch (error) { /* noop */ }
+}
+
+if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
+initTheme();
 
 setActiveTab(state.activeTab);
 ensureAuth();
