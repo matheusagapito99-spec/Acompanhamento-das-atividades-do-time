@@ -1,5 +1,6 @@
 const { buildAnalytics, matchesConfiguredName } = require('./analytics.cjs');
-const { fetchRunrunSnapshot, getDashboardConfig } = require('./runrunit.cjs');
+const { fetchRunrunSnapshot, getDashboardConfig, attachTaskHistories } = require('./runrunit.cjs');
+const { classifyBoard } = require('./history.cjs');
 
 const DAY_MS = 86400000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
@@ -29,6 +30,12 @@ const REPORT_TEMPLATE_VARIABLES = [
   { key: 'vazao', label: 'Vazao individual' },
   { key: 'tempoMedio', label: 'Tempo medio individual' },
   { key: 'tempoApontado', label: 'Tempo apontado individual' },
+  { key: 'eficiencia', label: 'Eficiencia de execucao (Bruno)' },
+  { key: 'cardsTrabalhados', label: 'Cards executados (Bruno)' },
+  { key: 'tempoExecucao', label: 'Tempo de execucao (Bruno)' },
+  { key: 'tempoMedioExecucao', label: 'Tempo medio por card (Bruno)' },
+  { key: 'aging', label: 'Cards em aging (Bruno)' },
+  { key: 'acimaEstimativa', label: 'Cards acima da estimativa (Bruno)' },
   { key: 'departamentoProdutividade', label: 'Produtividade do departamento' },
   { key: 'departamentoEntregues', label: 'Entregas do departamento' },
   { key: 'departamentoNoPrazo', label: 'Percentual no prazo do departamento' },
@@ -250,6 +257,36 @@ function metricTableHtml(personSummary = {}, departmentSummary = {}, comparisonS
   `;
 }
 
+function executionMetricTableHtml(personSummary = {}, departmentSummary = {}) {
+  return `
+    <h2 style="font-size:18px;margin:20px 0 8px;">Execucao no quadro de Criacao</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
+      <tr>
+        ${metricBlock('Eficiencia', formatPercent(personSummary.efficiency), 'Estimativa / tempo de execucao')}
+        ${metricBlock('Cards executados', formatNumber(personSummary.cardsWorked))}
+        ${metricBlock('Tempo de execucao', formatDuration(personSummary.executionSeconds))}
+        ${metricBlock('Aging', formatNumber(personSummary.aging))}
+      </tr>
+    </table>
+
+    <h2 style="font-size:18px;margin:28px 0 8px;">Produtividade do departamento</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-spacing:8px;">
+      <tr>
+        ${metricBlock('Departamento', formatPercent(departmentSummary.productivityScore))}
+        ${metricBlock('Entregues', formatNumber(departmentSummary.delivered))}
+        ${metricBlock('No prazo', formatPercent(departmentSummary.onTimeRate))}
+      </tr>
+    </table>
+  `;
+}
+
+function executionNote(personSummary = {}) {
+  const aging = Number(personSummary.aging || 0);
+  const over = Number(personSummary.overEstimate || 0);
+  if (!aging && !over) return '<p style="color:#49657e;">Execucao dentro do esperado no periodo.</p>';
+  return `<p style="color:#0b2840;">${formatNumber(over)} card(s) acima da estimativa; ${formatNumber(aging)} em aging (tempo de execucao acima de 2x a estimativa).</p>`;
+}
+
 function impactList(impacts = []) {
   if (!impacts.length) return '<p style="color:#49657e;">Sem tarefas vencidas relevantes no periodo.</p>';
   return `
@@ -330,6 +367,7 @@ function buildReportTemplateVariables({
   const personSummary = person?.summary || {};
   const departmentSummary = department?.summary || {};
   const comparisonScore = comparison?.summary?.productivityScore;
+  const isExecution = personSummary.role === 'execution';
   return {
     colaborador: collaborator || '',
     periodo: `${period?.start || ''} a ${period?.end || ''}`,
@@ -343,14 +381,25 @@ function buildReportTemplateVariables({
     vazao: formatNumber(personSummary.throughput),
     tempoMedio: formatDuration(personSummary.averageExecutionSeconds),
     tempoApontado: formatDuration(personSummary.workedSeconds),
+    // Execucao (Bruno)
+    eficiencia: formatPercent(personSummary.efficiency),
+    cardsTrabalhados: formatNumber(personSummary.cardsWorked),
+    tempoExecucao: formatDuration(personSummary.executionSeconds),
+    tempoMedioExecucao: formatDuration(personSummary.averageExecutionSeconds),
+    aging: formatNumber(personSummary.aging),
+    acimaEstimativa: formatNumber(personSummary.overEstimate),
     departamentoProdutividade: formatPercent(departmentSummary.productivityScore),
     departamentoEntregues: formatNumber(departmentSummary.delivered),
     departamentoNoPrazo: formatPercent(departmentSummary.onTimeRate),
     departamentoAtrasadas: formatNumber(departmentSummary.late),
     departamentoVencidas: formatNumber(departmentSummary.overdueOpen),
     departamentoVazao: formatNumber(departmentSummary.throughput),
-    blocoMetricas: metricTableHtml(personSummary, departmentSummary, comparisonScore),
-    tarefasCriticas: impactList(person?.productivityImpacts || []),
+    blocoMetricas: isExecution
+      ? executionMetricTableHtml(personSummary, departmentSummary)
+      : metricTableHtml(personSummary, departmentSummary, comparisonScore),
+    tarefasCriticas: isExecution
+      ? executionNote(personSummary)
+      : impactList(person?.productivityImpacts || []),
     complementoMensal: monthly ? ' + fechamento mensal' : '',
     complementoMensalTexto: monthlyTemplateHtml(monthly),
   };
@@ -506,6 +555,28 @@ async function loadReportContext({ env = process.env, referenceDate = new Date()
     start: earliestStart,
     end: periods.week.end,
   });
+
+  // Anexa o histórico (comentários) só aos cards das meninas com prazo que tocam o período do
+  // relatório — é o que permite "pausar" o prazo enquanto o card esteve no quadro do Bruno.
+  // É um lote semanal/mensal, então fica bem abaixo do limite de 100 req/min do Runrun.it.
+  const periodStart = new Date(`${earliestStart}T00:00:00-03:00`);
+  const periodEnd = new Date(`${periods.week.end}T23:59:59-03:00`);
+  const hasDeadline = (task) => Boolean(
+    task.first_desired_date || task.desired_date || task.desired_date_with_time || task.due_date || task.estimated_delivery_date,
+  );
+  const touchesPeriod = (task) => {
+    const created = new Date(task.task_created_at || task.created_at || task.start_date || 0);
+    const close = task.close_date ? new Date(task.close_date) : null;
+    const createdOk = Number.isNaN(created.getTime()) ? true : created <= periodEnd;
+    const closedBeforeStart = close && !Number.isNaN(close.getTime()) ? close < periodStart : false;
+    return createdOk && !closedBeforeStart;
+  };
+  const needsHistory = snapshot.tasks.filter((task) => {
+    const context = classifyBoard(task.board_name || task.board?.name, task.board_id ?? task.board?.id);
+    return context === 'marketing' && hasDeadline(task) && touchesPeriod(task);
+  });
+  await attachTaskHistories(needsHistory, { env, fetchImpl, now: new Date(referenceDate).toISOString(), concurrency: 3, maxTasks: 80 });
+
   return {
     config,
     periods,

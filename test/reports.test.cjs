@@ -136,6 +136,31 @@ test('custom report templates render metric variables in subject and body', () =
   assert.match(html, /Departamento: 55%/);
 });
 
+test('execution report (Bruno) shows execution metrics instead of delivery metrics', () => {
+  const html = buildReportEmailHtml({
+    collaborator: 'Bruno',
+    department: { summary: { productivityScore: 70, delivered: 8, onTimeRate: 80, overdueOpen: 1 } },
+    person: {
+      summary: {
+        role: 'execution',
+        productivityScore: 55,
+        efficiency: 55,
+        cardsWorked: 12,
+        executionSeconds: 3600 * 40,
+        averageExecutionSeconds: 3600 * 3,
+        aging: 2,
+        overEstimate: 3,
+      },
+      productivityImpacts: [],
+    },
+    period: { start: '2026-06-08', end: '2026-06-14' },
+  });
+
+  assert.match(html, /Execucao no quadro de Criacao/);
+  assert.match(html, /Cards executados/);
+  assert.doesNotMatch(html, /Produtividade individual/);
+});
+
 test('renderTemplateText strips visual HTML-only variables from subject templates', () => {
   const subject = renderTemplateText('Assunto {{colaborador}} {{blocoMetricas}}', { colaborador: 'Beatriz', blocoMetricas: '<table></table>' });
 

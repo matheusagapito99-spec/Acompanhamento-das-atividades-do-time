@@ -5,6 +5,7 @@ const analyticsHandler = require('./api/analytics.js');
 const healthHandler = require('./api/health.js');
 const reportConfigHandler = require('./api/report-config.js');
 const reportTestHandler = require('./api/report-test.js');
+const reportRunHandler = require('./api/report-run.js');
 const weeklyReportHandler = require('./api/cron/weekly-report.js');
 
 const PORT = Number(process.env.PORT || 4173);
@@ -60,6 +61,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/analytics') return analyticsHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/report-config') return reportConfigHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/report-test') return reportTestHandler(req, createVercelLikeResponse(res));
+  if (url.pathname === '/api/report-run') return reportRunHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/cron/weekly-report') return weeklyReportHandler(req, createVercelLikeResponse(res));
   return serveStatic(url, res);
 });

@@ -146,6 +146,7 @@ const els = {};
   'settingsButton', 'settingsModal', 'closeSettings', 'cardSelectionSummary', 'cardSelectionList',
   'includeAllCards', 'reportFrom', 'testReportPerson', 'testReportRecipient', 'reportSubjectTemplate',
   'reportBodyTemplate', 'resetReportTemplate', 'templateVariableList', 'sendTestReport', 'testReportStatus',
+  'sendWeeklyNow', 'sendNowConfirm', 'sendNowCancel', 'sendNowConfirmBtn', 'sendNowStatus',
 ].forEach((id) => { els[id] = document.getElementById(id); });
 
 /* ------------------------------------------------------------- formatters */
@@ -1216,6 +1217,32 @@ async function sendTestReport() {
   }
 }
 
+async function runWeeklyReportNow() {
+  if (!els.sendNowConfirmBtn) return;
+  els.sendNowConfirmBtn.disabled = true;
+  if (els.sendNowStatus) { els.sendNowStatus.textContent = 'Enviando para todos os colaboradores…'; els.sendNowStatus.className = 'automation-status'; }
+  try {
+    const response = await fetch('/api/report-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true, boardScope: state.boardScope }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'Falha ao enviar relatórios.');
+    const sent = (payload.sent || []).length;
+    const skipped = (payload.skipped || []).length;
+    if (els.sendNowStatus) {
+      els.sendNowStatus.textContent = `Enviado para ${sent} colaborador(es)${skipped ? ` · ${skipped} sem dados no período` : ''}.`;
+      els.sendNowStatus.className = 'automation-status success';
+    }
+  } catch (error) {
+    if (els.sendNowStatus) { els.sendNowStatus.textContent = error.message; els.sendNowStatus.className = 'automation-status error'; }
+  } finally {
+    els.sendNowConfirmBtn.disabled = false;
+    els.sendNowConfirm?.classList.add('hidden');
+  }
+}
+
 /* --------------------------------------------------------------- navigation */
 
 function shouldShowGlobalOverview(tabName) {
@@ -1356,6 +1383,9 @@ if (els.templateVariableList) {
   });
 }
 if (els.sendTestReport) els.sendTestReport.addEventListener('click', sendTestReport);
+if (els.sendWeeklyNow) els.sendWeeklyNow.addEventListener('click', () => { els.sendNowConfirm?.classList.remove('hidden'); });
+if (els.sendNowCancel) els.sendNowCancel.addEventListener('click', () => { els.sendNowConfirm?.classList.add('hidden'); });
+if (els.sendNowConfirmBtn) els.sendNowConfirmBtn.addEventListener('click', runWeeklyReportNow);
 
 setActiveTab(state.activeTab);
 loadData();

@@ -368,6 +368,24 @@
             <button class="primary-button" id="sendTestReport" type="button">Enviar teste</button>
           </div>
           <div class="automation-status" id="testReportStatus"></div>
+
+          <div class="send-now-block">
+            <div class="send-now-head">
+              <div>
+                <h3>Envio real para todos</h3>
+                <p class="panel-note">A segunda-feira já dispara automaticamente. Use aqui para enviar agora o relatório da semana anterior (e o fechamento mensal, na primeira segunda do mês).</p>
+              </div>
+              <button class="ghost-button" id="sendWeeklyNow" type="button">Enviar agora</button>
+            </div>
+            <div class="send-now-confirm hidden" id="sendNowConfirm">
+              <span>⚠️ Isto envia o relatório <strong>real</strong> por e-mail para todos os colaboradores. Confirmar?</span>
+              <div class="send-now-actions">
+                <button class="ghost-button" id="sendNowCancel" type="button">Cancelar</button>
+                <button class="primary-button" id="sendNowConfirmBtn" type="button">Confirmar envio</button>
+              </div>
+            </div>
+            <div class="automation-status" id="sendNowStatus"></div>
+          </div>
         </div>
       </div>
     </div>

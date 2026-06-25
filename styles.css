@@ -538,6 +538,12 @@ td strong { font-weight: 700; }
 .card-selection-impact { color: var(--red); font-weight: 700; white-space: nowrap; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .modal-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
 
+.send-now-block { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.send-now-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.send-now-confirm { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--amber); border-radius: var(--radius-sm); background: var(--amber-soft); color: var(--ink-soft); font-size: 13px; display: grid; gap: 12px; }
+.send-now-confirm strong { color: var(--ink); }
+.send-now-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
 /* --------------------------------------------------------------- responsive */
 
 @media (max-width: 1200px) {
