@@ -763,20 +763,23 @@ function renderPeopleCards() {
 }
 
 const BRUNO_METRIC_CARDS = [
-  { key: 'productivityScore', label: 'Eficiência', type: 'percent', help: 'Eficiência de execução = estimativa do card ÷ tempo de execução (atribuição). 100% quando entrega dentro da estimativa.', tone: (s) => (s.efficiency >= 70 ? 'positive' : s.efficiency >= 50 ? 'warning' : 'negative') },
-  { key: 'cardsWorked', label: 'Cards trabalhados', type: 'number', help: 'Quantidade de cards do quadro de Criação que o Bruno tocou no período.' },
-  { key: 'averageExecutionSeconds', label: 'Tempo médio/card', type: 'seconds', help: 'Duração média de atribuição por card (tempo de execução).' },
-  { key: 'executionSeconds', label: 'Execução total', type: 'seconds', help: 'Soma da duração das atribuições do Bruno no período.' },
-  { key: 'workedSeconds', label: 'Tempo apontado', type: 'seconds', help: 'Horas lançadas pelo Bruno no Runrun.it.' },
-  { key: 'aging', label: 'Aging', type: 'number', help: 'Cards cujo tempo de execução passou de 2x a estimativa (risco de gargalo).', tone: (s) => (s.aging ? 'negative' : 'positive') },
+  { key: 'productivityScore', valueKey: 'efficiency', label: 'Eficiência', type: 'percent', polarity: 'higher', help: 'Eficiência de execução = estimativa do card ÷ tempo de execução (atribuição). 100% quando entrega dentro da estimativa.', tone: (s) => (s.efficiency >= 70 ? 'positive' : s.efficiency >= 50 ? 'warning' : 'negative') },
+  { key: 'cardsWorked', label: 'Cards trabalhados', type: 'number', polarity: 'higher', help: 'Quantidade de cards do quadro de Criação que o Bruno executou no período.' },
+  { key: 'averageExecutionSeconds', label: 'Tempo médio/card', type: 'seconds', polarity: 'lower', help: 'Duração média de atribuição por card (tempo de execução).' },
+  { key: 'executionSeconds', label: 'Execução total', type: 'seconds', polarity: 'neutral', help: 'Soma da duração das atribuições do Bruno no período.' },
+  { key: 'workedSeconds', label: 'Tempo apontado', type: 'seconds', polarity: 'neutral', help: 'Horas lançadas pelo Bruno no Runrun.it.' },
+  { key: 'aging', label: 'Aging', type: 'number', polarity: 'lower', help: 'Cards cujo tempo de execução passou de 2x a estimativa (risco de gargalo).', tone: (s) => (s.aging ? 'negative' : 'positive') },
 ];
 
 function renderBrunoMetrics(container, summary, comparison) {
   if (!container) return;
   container.innerHTML = BRUNO_METRIC_CARDS.map((def) => {
-    const value = summary[def.key === 'productivityScore' ? 'efficiency' : def.key] ?? summary[def.key];
+    const value = summary[def.valueKey || def.key];
     const tone = def.tone ? def.tone(summary) : '';
     const item = comparison?.metrics?.[def.key];
+    const detail = def.key === 'productivityScore'
+      ? `${formatNumber(summary.overEstimate)} card(s) acima da estimativa`
+      : 'Execução no quadro de Criação';
     return `
       <article class="metric-card ${tone}">
         <div class="metric-top">
@@ -785,9 +788,10 @@ function renderBrunoMetrics(container, summary, comparison) {
         </div>
         <div class="metric-value-row">
           <strong>${formatMetricValue(def, value)}</strong>
-          ${renderDeltaPill({ polarity: def.key === 'aging' ? 'lower' : 'higher' }, item)}
+          ${renderDeltaPill({ polarity: def.polarity || 'neutral' }, item)}
         </div>
-        <small>${def.key === 'productivityScore' ? `${formatNumber(summary.overEstimate)} card(s) acima da estimativa` : 'Execução no quadro de Criação'}</small>
+        <small>${detail}</small>
+        <em>Período anterior: ${item ? formatMetricValue(def, item.previous) : '—'}</em>
       </article>`;
   }).join('');
 }
@@ -1029,8 +1033,13 @@ function renderCardSelection() {
   const included = people.reduce((sum, p) => sum + p.included, 0);
   const excluded = people.reduce((sum, p) => sum + (p.total - p.included), 0);
   els.cardSelectionSummary.textContent = `${formatNumber(included)} marcados | ${formatNumber(excluded)} desmarcados`;
+  // Preserva quais pessoas estão expandidas para o acordeão não colapsar a cada
+  // re-render (ao marcar/desmarcar um card ou no auto-refresh de 15s).
+  const openSet = new Set(
+    Array.from(els.cardSelectionList.querySelectorAll('.card-selection-person[open]')).map((d) => d.dataset.person),
+  );
   els.cardSelectionList.innerHTML = people.map((person) => `
-    <details class="card-selection-person">
+    <details class="card-selection-person" data-person="${escapeHtml(person.name)}" ${openSet.has(person.name) ? 'open' : ''}>
       <summary class="card-selection-person-head">
         <strong>${escapeHtml(person.name)}</strong>
         <span>${formatNumber(person.included)}/${formatNumber(person.total)} usados</span>

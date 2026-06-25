@@ -317,10 +317,10 @@ select {
 .metric-card {
   position: relative; min-height: 150px; border-radius: var(--radius);
   background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
-  padding: 17px; display: grid; align-content: start; gap: 10px; overflow: hidden;
+  padding: 17px; display: grid; align-content: start; gap: 10px;
   transition: transform var(--t), box-shadow var(--t), border-color var(--t);
 }
-.metric-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--primary), var(--brand)); opacity: 0; transition: opacity var(--t); }
+.metric-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; border-radius: var(--radius) var(--radius) 0 0; background: linear-gradient(90deg, var(--primary), var(--brand)); opacity: 0; transition: opacity var(--t); }
 .metric-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--line-strong); }
 .metric-card:hover::before { opacity: 1; }
 .metric-card.positive::before { background: linear-gradient(90deg, #1cb37a, var(--green)); opacity: 1; }
