@@ -183,6 +183,32 @@ test('buildDailySeries returns one entry per day with non-negative counts', () =
   });
 });
 
+test('cards with multiple assignees are counted once (no double counting)', () => {
+  const analytics = buildAnalytics([
+    {
+      id: 700,
+      title: 'Card com duas pessoas alocadas',
+      board_name: 'Demandas MKT',
+      board_stage_name: 'Concluido',
+      user_name: 'Allana',
+      assignments: [{ assignee_name: 'Allana' }, { assignee_name: 'Bruna' }],
+      created_at: '2026-06-02T10:00:00-03:00',
+      close_date: '2026-06-03T10:00:00-03:00',
+      desired_date: '2026-06-05T18:00:00-03:00',
+      is_closed: true,
+    },
+  ], {
+    collaborators: ['Allana', 'Bruno', 'Bruna', 'Beatriz'],
+    boards: ['Demandas MKT'],
+    start: '2026-06-01',
+    end: '2026-06-08',
+  });
+
+  assert.equal(analytics.scopedTaskCount, 1);
+  assert.equal(analytics.summary.delivered, 1);
+  assert.equal(analytics.audit.length, 1);
+});
+
 test('buildAnalytics applies the marketing and Bruno board rules', () => {
   const analytics = buildAnalytics([
     {
@@ -507,10 +533,11 @@ test('buildAnalytics accepts the real Runrun.it Demandas de MKT board name', () 
     end: '2026-05-31',
   });
 
-  assert.equal(analytics.scopedTaskCount, 3);
+  // Card 31 tem duas alocadas (Allana + Beatriz): conta UMA vez, para a responsável (Allana).
+  assert.equal(analytics.scopedTaskCount, 2);
   assert.equal(analytics.people.find((person) => person.name === 'Bruna').summary.active, 1);
   assert.equal(analytics.people.find((person) => person.name === 'Allana').summary.active, 1);
-  assert.equal(analytics.people.find((person) => person.name === 'Beatriz').summary.active, 1);
+  assert.equal(analytics.people.find((person) => person.name === 'Beatriz').summary.active, 0);
   assert.equal(analytics.breakdowns.boards[0].name, 'Demandas de MKT');
 });
 

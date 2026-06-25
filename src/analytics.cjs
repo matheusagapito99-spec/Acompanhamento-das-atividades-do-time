@@ -1219,6 +1219,21 @@ function buildApprovalExcessAlerts(tasks, collaborators, now = new Date()) {
   return alerts;
 }
 
+// Cada card deve contar UMA vez. A expansão por atribuição (expandTaskAssignments) pode gerar
+// várias linhas para o mesmo card quando há mais de uma pessoa alocada; aqui mantemos só a
+// primeira linha escopada de cada card (a atribuição já resolvida para uma colaboradora).
+function dedupeTasksById(tasks = []) {
+  const seen = new Set();
+  const result = [];
+  for (const task of tasks) {
+    const id = String(getTaskId(task) ?? '').trim();
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    result.push(task);
+  }
+  return result;
+}
+
 function buildAnalytics(rawTasks = [], options = {}) {
   const collaborators = options.collaborators || [];
   const period = normalizePeriod(options);
@@ -1226,7 +1241,7 @@ function buildAnalytics(rawTasks = [], options = {}) {
   const productivitySettings = normalizeProductivitySettings(options);
   const excludedTaskIdsByPerson = normalizeExcludedTaskIdsByPerson(options, collaborators);
   const normalizedTasks = expandTaskAssignments(rawTasks);
-  const scopedTasks = normalizedTasks.filter((task) => isScopedTask(task, { ...options, boardScope }));
+  const scopedTasks = dedupeTasksById(normalizedTasks.filter((task) => isScopedTask(task, { ...options, boardScope })));
   const productivityTasks = scopedTasks.filter((task) => {
     return !isTaskExcludedFromProductivity(task, collaborators, excludedTaskIdsByPerson);
   });
