@@ -1,6 +1,7 @@
 const { buildAnalytics, matchesConfiguredName } = require('./analytics.cjs');
 const { fetchRunrunSnapshot, getDashboardConfig, attachTaskHistories } = require('./runrunit.cjs');
 const { classifyBoard } = require('./history.cjs');
+const { dbEnabled, getSql, readSnapshot } = require('./db.cjs');
 
 const DAY_MS = 86400000;
 const BRAZIL_TIME_ZONE = 'America/Sao_Paulo';
@@ -548,17 +549,28 @@ async function sendEmailViaResend({ from, to, subject, html, env = process.env, 
 async function loadReportContext({ env = process.env, referenceDate = new Date(), fetchImpl, boardScope = 'all' } = {}) {
   const config = getDashboardConfig(env);
   const periods = buildReportPeriods(referenceDate);
-  const earliestStart = periods.previousMonth?.start || periods.previousWeek.start;
-  const snapshot = await fetchRunrunSnapshot({
-    env,
-    fetchImpl,
-    start: earliestStart,
-    end: periods.week.end,
-  });
 
-  // Anexa o histórico (comentários) só aos cards das meninas com prazo que tocam o período do
-  // relatório — é o que permite "pausar" o prazo enquanto o card esteve no quadro do Bruno.
-  // É um lote semanal/mensal, então fica bem abaixo do limite de 100 req/min do Runrun.it.
+  // Caminho preferido: ler do banco (sincronizado pelo cron), já com histórico e primeiro prazo.
+  if (dbEnabled(env)) {
+    try {
+      const snap = await readSnapshot(getSql(env));
+      if (snap && snap.tasks.length) {
+        return {
+          config,
+          periods,
+          snapshot: { tasks: snap.tasks, users: snap.users, boards: snap.boards, sourceWarnings: snap.source?.warnings || [] },
+          boardScope,
+        };
+      }
+    } catch (dbError) {
+      // banco indisponível — cai para o caminho ao vivo
+    }
+  }
+
+  // Fallback ao vivo: busca do Runrun e anexa o histórico (pausa) aos cards das meninas com
+  // prazo no período do relatório (lote semanal/mensal, bem abaixo do limite de 100 req/min).
+  const earliestStart = periods.previousMonth?.start || periods.previousWeek.start;
+  const snapshot = await fetchRunrunSnapshot({ env, fetchImpl, start: earliestStart, end: periods.week.end });
   const periodStart = new Date(`${earliestStart}T00:00:00-03:00`);
   const periodEnd = new Date(`${periods.week.end}T23:59:59-03:00`);
   const hasDeadline = (task) => Boolean(

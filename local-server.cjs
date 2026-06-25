@@ -7,6 +7,7 @@ const reportConfigHandler = require('./api/report-config.js');
 const reportTestHandler = require('./api/report-test.js');
 const reportRunHandler = require('./api/report-run.js');
 const weeklyReportHandler = require('./api/cron/weekly-report.js');
+const syncHandler = require('./api/cron/sync.js');
 const authLoginHandler = require('./api/auth/login.js');
 const authCallbackHandler = require('./api/auth/callback.js');
 const authLogoutHandler = require('./api/auth/logout.js');
@@ -70,6 +71,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/report-test') return reportTestHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/report-run') return reportRunHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/cron/weekly-report') return weeklyReportHandler(req, createVercelLikeResponse(res));
+  if (url.pathname === '/api/cron/sync') return syncHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/auth/login') return authLoginHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/auth/callback') return authCallbackHandler(req, createVercelLikeResponse(res));
   if (url.pathname === '/api/auth/logout') return authLogoutHandler(req, createVercelLikeResponse(res));
